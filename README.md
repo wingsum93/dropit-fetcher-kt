@@ -34,3 +34,19 @@ POSTGRES_PASSWORD=dropit_password
 - `POSTGRES_DB`: Postgres database name.
 - `POSTGRES_USER`: Postgres username.
 - `POSTGRES_PASSWORD`: Postgres password.
+
+## Docker
+Build the image:
+```
+docker build -t dropit-fetcher-kt .
+```
+
+Run the container (no ports are exposed because this is a CLI job):
+```
+docker run --rm --env-file .env dropit-fetcher-kt
+```
+
+If you prefer, you can mount a local `.env` file into the container instead:
+```
+docker run --rm -v "$PWD/.env:/app/.env:ro" dropit-fetcher-kt
+```
