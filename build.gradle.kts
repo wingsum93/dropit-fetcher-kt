@@ -12,6 +12,20 @@ repositories {
 }
 
 dependencies {
+    // Ktor client (CIO engine)
+    implementation("io.ktor:ktor-client-core:2.3.12")
+    implementation("io.ktor:ktor-client-cio:2.3.12")
+
+    // JSON serialization
+    implementation("io.ktor:ktor-client-content-negotiation:2.3.12")
+    implementation("io.ktor:ktor-serialization-kotlinx-json:2.3.12")
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
+
+    // Logging (simple, CLI-friendly)
+    implementation("ch.qos.logback:logback-classic:1.5.16")
+
+    // Optional: parse env / .env (if you want)
+    // implementation("io.github.cdimascio:dotenv-kotlin:6.4.2")
     testImplementation(kotlin("test"))
 }
 
