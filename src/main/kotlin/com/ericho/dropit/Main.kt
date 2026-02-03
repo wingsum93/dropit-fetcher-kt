@@ -6,6 +6,8 @@ import java.io.File
 
 
 fun main() = runBlocking {
+    val tempDir = System.getenv("TEMP_FOLDER") ?: "temp"
+    File(tempDir).mkdirs()
     val client = GroceryClient()
 
     val aJson = client.fetchUrlAsJson("https://api.freshop.ncrcloud.com/1/products?app_key=lindos&department_id_cascade=true&include_departments=true&limit=0&render_id=1770110706171&store_id=7446&token=55538cf8dc7e26f2b8e6ff150c07acad")
@@ -14,11 +16,11 @@ fun main() = runBlocking {
     val productJson = client.fetchProductDetailAsJson(1564405684712095895L)
 
     // Write to file
-    File("api1.json").writeText(aJson.toPrettyJson())
-    File("api2.json").writeText(tr2Json.toPrettyJson())
-    File("product.json").writeText(productJson.toPrettyJson())
+    File("$tempDir/api1.json").writeText(aJson.toPrettyJson())
+    File("$tempDir/api2.json").writeText(tr2Json.toPrettyJson())
+    File("$tempDir/product.json").writeText(productJson.toPrettyJson())
 
-    println("Saved to api1.json")
+    println("Saved to $tempDir/api1.json")
 }
 
 private fun String.toPrettyJson():String{
