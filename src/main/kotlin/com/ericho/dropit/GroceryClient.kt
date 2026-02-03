@@ -51,9 +51,9 @@ class GroceryClient {
         return http.get(url).bodyAsText()
     }
 
-    suspend fun fetchProductUrlAsJson(
-        storeId: Int,
-        url: String
+    suspend fun fetchProductsFromDepartment(
+        departmentId: Int,
+        storeId: Int = AppSetting.storeId7442,
     ): String {
         // app_key
         //include_departments
@@ -62,12 +62,20 @@ class GroceryClient {
         //render_id
         //token
 
-        return http.get(url) {
+        val fields = listOf("id","store_id","department_id","status", "product_name").joinToString(",")
+
+        return http.get(URL_PRODUCT) {
             url {
                 parameters.append("app_key", AppSetting.appKey)
                 parameters.append("store_id", storeId.toString())
+                parameters.append("department_id", storeId.toString())
                 parameters.append("include_departments", true.toString())
+                parameters.append("token", AppSetting.sampleToken)
+                parameters.append("render_id", "1769356302366")
+                parameters.append("popularity_sort", "asc")
+                parameters.append("limit", (96).toString())
                 parameters.append("department_id_cascade", true.toString())
+                parameter("fields",fields)
             }
         }.bodyAsText()
     }
