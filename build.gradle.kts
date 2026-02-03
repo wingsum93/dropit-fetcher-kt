@@ -30,6 +30,7 @@ dependencies {
 
     // Parse env / .env
     implementation("io.github.cdimascio:dotenv-kotlin:6.4.2")
+    implementation("org.postgresql:postgresql:42.7.3")
     testImplementation(kotlin("test"))
 }
 
