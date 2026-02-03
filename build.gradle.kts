@@ -11,6 +11,10 @@ repositories {
     mavenCentral()
 }
 
+application {
+    mainClass.set("com.ericho.dropit.MainKt")
+}
+
 dependencies {
     // Ktor client (CIO engine)
     implementation("io.ktor:ktor-client-core:2.3.12")
