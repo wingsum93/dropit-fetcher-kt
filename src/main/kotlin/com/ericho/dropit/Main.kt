@@ -1,12 +1,14 @@
 package com.ericho.dropit
 
 import com.ericho.dropit.util.PrettyJson
+import io.github.cdimascio.dotenv.dotenv
 import kotlinx.coroutines.runBlocking
 import java.io.File
 
 
 fun main() = runBlocking {
-    val tempDir = System.getenv("TEMP_FOLDER") ?: "temp"
+    val dotenv = dotenv()
+    val tempDir = dotenv["TEMP_FOLDER"] ?: System.getenv("TEMP_FOLDER") ?: "temp"
     File(tempDir).mkdirs()
     val client = GroceryClient()
 

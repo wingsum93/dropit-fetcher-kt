@@ -13,3 +13,11 @@ Second part, it save into postgresql db (if connected) or to json files for huma
 Dropit is use api.freshop.ncrcloud.com as backend service, which is owned by NCR Voyix Freshop.
 We can find the api spec in https://developer.ncrvoyix.com/portals/dev-portal/api-explorer/details/1186/documentation
 But in this project, we would only focus on the product list and department list.
+
+## Configuration
+You can provide a `.env` file to configure the temp output folder used when saving JSON responses.
+
+Example:
+```
+TEMP_FOLDER=./temp
+```
