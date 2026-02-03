@@ -21,12 +21,36 @@ fun main() = runBlocking {
     val productJson = client.fetchProductDetailAsJson(1564405684712095895L)
 
     // Write to file
-    File("$tempDir/allDepartment.json").writeText(allDepartmentJson.toPrettyJson())
-    File("$tempDir/productsOfDepartmentA.json").writeText(productsOfDepartmentA.toPrettyJson())
-    File("$tempDir/productsOfDepartmentB.json").writeText(productsOfDepartmentB.toPrettyJson())
-    File("$tempDir/productsOfDepartmentC.json").writeText(productsOfDepartmentC.toPrettyJson())
-    File("$tempDir/productsOfDepartmentD.json").writeText(productsOfDepartmentD.toPrettyJson())
-    File("$tempDir/singleProduct.json").writeText(productJson.toPrettyJson())
+    val allDepartmentPretty = allDepartmentJson.toPrettyJson()
+    val productsOfDepartmentAPretty = productsOfDepartmentA.toPrettyJson()
+    val productsOfDepartmentBPretty = productsOfDepartmentB.toPrettyJson()
+    val productsOfDepartmentCPretty = productsOfDepartmentC.toPrettyJson()
+    val productsOfDepartmentDPretty = productsOfDepartmentD.toPrettyJson()
+    val productPretty = productJson.toPrettyJson()
+
+    File("$tempDir/allDepartment.json").writeText(allDepartmentPretty)
+    File("$tempDir/productsOfDepartmentA.json").writeText(productsOfDepartmentAPretty)
+    File("$tempDir/productsOfDepartmentB.json").writeText(productsOfDepartmentBPretty)
+    File("$tempDir/productsOfDepartmentC.json").writeText(productsOfDepartmentCPretty)
+    File("$tempDir/productsOfDepartmentD.json").writeText(productsOfDepartmentDPretty)
+    File("$tempDir/singleProduct.json").writeText(productPretty)
+
+    val databaseConfig = DatabaseConfig.fromEnv(dotenv)
+    if (databaseConfig == null) {
+        println("Postgres env vars missing. Skipping database persistence.")
+    } else {
+        PostgresWriter.writeSnapshots(
+            databaseConfig,
+            listOf(
+                SnapshotPayload("allDepartment", allDepartmentPretty),
+                SnapshotPayload("productsOfDepartmentA", productsOfDepartmentAPretty),
+                SnapshotPayload("productsOfDepartmentB", productsOfDepartmentBPretty),
+                SnapshotPayload("productsOfDepartmentC", productsOfDepartmentCPretty),
+                SnapshotPayload("productsOfDepartmentD", productsOfDepartmentDPretty),
+                SnapshotPayload("singleProduct", productPretty)
+            )
+        )
+    }
 
     println("Saved to $tempDir/api1.json")
 }
