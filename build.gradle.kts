@@ -2,6 +2,7 @@ plugins {
     kotlin("jvm") version "2.1.10"
     kotlin("plugin.serialization") version "2.1.10"
     application
+    id("com.github.johnrengelman.shadow") version "8.1.1"
 }
 
 group = "org.ericho.dropit-fetcher"
@@ -13,6 +14,32 @@ repositories {
 
 application {
     mainClass.set("com.ericho.dropit.MainKt")
+}
+
+tasks {
+    // Build a runnable fat jar for Docker.
+    jar {
+        enabled = false
+    }
+    shadowJar {
+        archiveClassifier.set("")
+        manifest {
+            attributes("Main-Class" to application.mainClass.get())
+        }
+    }
+    build {
+        dependsOn(shadowJar)
+    }
+    // Declare explicit dependencies on shadowJar
+    distZip {
+        dependsOn(shadowJar)
+    }
+    distTar {
+        dependsOn(shadowJar)
+    }
+    startScripts {
+        dependsOn(shadowJar)
+    }
 }
 
 dependencies {
