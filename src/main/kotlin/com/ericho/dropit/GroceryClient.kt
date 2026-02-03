@@ -13,6 +13,7 @@ import kotlinx.serialization.json.Json
 
 class GroceryClient {
     private val URL_PRODUCT = "https://api.freshop.ncrcloud.com/1/products"
+    private val URL_PRODUCT_DETAIL = "https://api.freshop.ncrcloud.com/1/products/"
     private val http = HttpClient(CIO) {
         install(ContentNegotiation) {
             json(
@@ -46,14 +47,14 @@ class GroceryClient {
             .body()
     }
 
-    suspend fun fetchUrlAsJson(url:String):String{
+    suspend fun fetchUrlAsJson(url: String): String {
         return http.get(url).bodyAsText()
     }
 
     suspend fun fetchProductUrlAsJson(
-        storeId:Int,
-        url:String
-    ):String{
+        storeId: Int,
+        url: String
+    ): String {
         // app_key
         //include_departments
         // department_id_cascade
@@ -61,12 +62,24 @@ class GroceryClient {
         //render_id
         //token
 
-        return http.get(url){
-            url{
-                parameters.append("app_key",AppSetting.appKey)
-                parameters.append("store_id",storeId.toString())
-                parameters.append("include_departments",true.toString())
-                parameters.append("department_id_cascade",true.toString())
+        return http.get(url) {
+            url {
+                parameters.append("app_key", AppSetting.appKey)
+                parameters.append("store_id", storeId.toString())
+                parameters.append("include_departments", true.toString())
+                parameters.append("department_id_cascade", true.toString())
+            }
+        }.bodyAsText()
+    }
+
+    suspend fun fetchProductDetailAsJson(
+        productId: Long
+    ): String {
+        return http.get {
+            url {
+                takeFrom(URL_PRODUCT_DETAIL)
+                appendPathSegments(productId.toString())
+                parameters.append("app_key", AppSetting.appKey)
             }
         }.bodyAsText()
     }
