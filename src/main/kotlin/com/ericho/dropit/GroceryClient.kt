@@ -12,6 +12,7 @@ import io.ktor.serialization.kotlinx.json.*
 import kotlinx.serialization.json.Json
 
 class GroceryClient {
+    private val URL_PRODUCT = "https://api.freshop.ncrcloud.com/1/products"
     private val http = HttpClient(CIO) {
         install(ContentNegotiation) {
             json(
@@ -47,5 +48,26 @@ class GroceryClient {
 
     suspend fun fetchUrlAsJson(url:String):String{
         return http.get(url).bodyAsText()
+    }
+
+    suspend fun fetchProductUrlAsJson(
+        storeId:Int,
+        url:String
+    ):String{
+        // app_key
+        //include_departments
+        // department_id_cascade
+        // limit=0
+        //render_id
+        //token
+
+        return http.get(url){
+            url{
+                parameters.append("app_key",AppSetting.appKey)
+                parameters.append("store_id",storeId.toString())
+                parameters.append("include_departments",true.toString())
+                parameters.append("department_id_cascade",true.toString())
+            }
+        }.bodyAsText()
     }
 }
