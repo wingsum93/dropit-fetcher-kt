@@ -24,6 +24,22 @@ class GroceryRepositoryTest {
     fun testGetProductOfDepartment_22888702() = runBlocking {
         val repo = GroceryRepository()
         val departmentIds = listOf(22888702, 22888712, 22888714, 22887698)
+        22886614
+
+        departmentIds.forEach { departmentId ->
+            val payload = repo.getProductsFromDepartment(departmentId)
+
+            assertTrue(payload.items.isNotEmpty())
+            assertTrue(payload.items.all { it.id.isNotBlank() })
+            assertTrue(payload.total >= payload.items.size)
+            assertTrue(payload.departments.isNotEmpty())
+            assertTrue(payload.departments.any { it.id == departmentId.toString() })
+        }
+    }
+    @Test
+    fun testGetProductOfDepartment_22886614() = runBlocking {
+        val repo = GroceryRepository()
+        val departmentIds = listOf(22886614)
 
         departmentIds.forEach { departmentId ->
             val payload = repo.getProductsFromDepartment(departmentId)

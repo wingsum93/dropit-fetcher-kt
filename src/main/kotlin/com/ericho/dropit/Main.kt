@@ -9,8 +9,8 @@ import java.time.format.DateTimeParseException
 import kotlin.system.exitProcess
 
 data class CliOptions(
-    val deptConcurrency: Int = 2,
-    val detailConcurrency: Int = 10,
+    val deptConcurrency: Int = 1,
+    val detailConcurrency: Int = 2,
     val resume: Boolean = false,
     val since: LocalDate? = null,
     val dryRun: Boolean = false,
@@ -89,8 +89,8 @@ private class CliArgException(msg: String) : RuntimeException(msg)
 private fun parseArgs(args: Array<String>): Pair<CliOptions, String?> {
     if (args.isEmpty()) return CliOptions() to null
 
-    var deptConcurrency = 2
-    var detailConcurrency = 10
+    var deptConcurrency = 1
+    var detailConcurrency = 2
     var resume = false
     var since: LocalDate? = null
     var dryRun = false
@@ -194,8 +194,8 @@ private fun printUsage() {
           help                 Show help
 
         Flags:
-          --deptConcurrency N      Parallel departments (default: 2)
-          --detailConcurrency N    Parallel item detail calls (default: 10)
+          --deptConcurrency N      Parallel departments (default: 1)
+          --detailConcurrency N    Parallel item detail calls (default: 2)
           --resume                Resume from checkpoints / skip already-synced items
           --since YYYY-MM-DD       Only pull items updated since date (optional)
           --dryRun                Do not write to storage (just print / simulate)
@@ -205,7 +205,7 @@ private fun printUsage() {
           -h, --help               Show help
 
         Examples:
-          grocery-cli sync --deptConcurrency 3 --detailConcurrency 12
+          grocery-cli sync --deptConcurrency 2 --detailConcurrency 4
           grocery-cli sync --resume --since 2026-01-01
           grocery-cli sync --dryRun --out ./dump.jsonl
         """.trimIndent()
