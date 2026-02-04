@@ -1,6 +1,6 @@
 package com.ericho.dropit
 
-import com.ericho.dropit.model.FakeStorage
+import com.ericho.dropit.model.adapter.FakeStorage
 import com.ericho.dropit.model.FetchOptions
 import io.github.cdimascio.dotenv.dotenv
 import kotlinx.coroutines.runBlocking

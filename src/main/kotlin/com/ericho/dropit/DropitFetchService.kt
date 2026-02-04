@@ -1,7 +1,7 @@
 package com.ericho.dropit
 
 import com.ericho.dropit.model.FetchReport
-import com.ericho.dropit.model.Storage
+import com.ericho.dropit.model.adapter.Storage
 import com.ericho.dropit.model.FetchOptions
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.asFlow

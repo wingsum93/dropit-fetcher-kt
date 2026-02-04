@@ -28,7 +28,8 @@ class RateLimit429Plugin private constructor(
     private val baseDelay: Duration,
     private val maxDelay: Duration,
     private val jitterRatio: Double,
-    private val respectRetryAfter: Boolean
+    private val respectRetryAfter: Boolean,
+    private val rateLimitStatusCodes: Set<Int>
 ) {
 
     class Config {
@@ -37,6 +38,11 @@ class RateLimit429Plugin private constructor(
         var maxDelay: Duration = 30.seconds
         var jitterRatio: Double = 0.2
         var respectRetryAfter: Boolean = true
+        // Include 400 since this API signals rate limit with Bad Request
+        var rateLimitStatusCodes: Set<Int> = setOf(
+            HttpStatusCode.TooManyRequests.value,
+            HttpStatusCode.BadRequest.value
+        )
     }
 
     companion object : HttpClientPlugin<Config, RateLimit429Plugin> {
@@ -46,12 +52,14 @@ class RateLimit429Plugin private constructor(
             val cfg = Config().apply(block)
             require(cfg.maxRetries >= 0) { "maxRetries must be >= 0" }
             require(cfg.jitterRatio in 0.0..1.0) { "jitterRatio must be within 0..1" }
+            require(cfg.rateLimitStatusCodes.isNotEmpty()) { "rateLimitStatusCodes must not be empty" }
             return RateLimit429Plugin(
                 maxRetries = cfg.maxRetries,
                 baseDelay = cfg.baseDelay,
                 maxDelay = cfg.maxDelay,
                 jitterRatio = cfg.jitterRatio,
-                respectRetryAfter = cfg.respectRetryAfter
+                respectRetryAfter = cfg.respectRetryAfter,
+                rateLimitStatusCodes = cfg.rateLimitStatusCodes
             )
         }
 
@@ -69,7 +77,7 @@ class RateLimit429Plugin private constructor(
                         else -> return@intercept
                     }
 
-                    if (response.status != HttpStatusCode.TooManyRequests) {
+                    if (response.status.value !in plugin.rateLimitStatusCodes) {
                         return@intercept // success or other status, let it pass
                     }
 

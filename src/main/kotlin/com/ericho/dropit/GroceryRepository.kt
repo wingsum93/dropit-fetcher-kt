@@ -36,9 +36,9 @@ class GroceryRepository {
             )
         }
         install(HttpTimeout) {
-            requestTimeoutMillis = 20_000
-            connectTimeoutMillis = 10_000
-            socketTimeoutMillis = 20_000
+            requestTimeoutMillis = 80_000
+            connectTimeoutMillis = 20_000
+            socketTimeoutMillis = 40_000
         }
         install(RateLimit429Plugin) {
             maxRetries = 6

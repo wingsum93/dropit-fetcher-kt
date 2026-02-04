@@ -59,6 +59,7 @@ dependencies {
     // Parse env / .env
     implementation("io.github.cdimascio:dotenv-kotlin:6.4.2")
     implementation("org.postgresql:postgresql:42.7.3")
+    implementation("org.xerial:sqlite-jdbc:3.46.1.0")
     testImplementation(kotlin("test"))
 }
 

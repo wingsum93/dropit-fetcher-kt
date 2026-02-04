@@ -1,13 +1,31 @@
-package com.ericho.dropit.model
+package com.ericho.dropit.model.adapter
 
+import com.ericho.dropit.model.DatabaseConfig
+import com.ericho.dropit.model.SingleProductPayload
 import com.ericho.dropit.model.api.SnapshotPayload
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 import java.sql.DriverManager
 import java.sql.Timestamp
 import java.time.Instant
 import java.util.Properties
 
-object PostgresWriter {
-    fun writeSnapshots(config: DatabaseConfig, snapshots: List<SnapshotPayload>) {
+class PostgresqlStorage(private val config: DatabaseConfig) : Storage {
+    private val json = Json { encodeDefaults = true }
+
+    override fun upsert(detail: SingleProductPayload) {
+        val snapshot = SnapshotPayload(
+            key = detail.id,
+            json = json.encodeToString(detail)
+        )
+        writeSnapshots(listOf(snapshot))
+    }
+
+    private fun writeSnapshots(snapshots: List<SnapshotPayload>) {
+        if (snapshots.isEmpty()) {
+            return
+        }
+
         val jdbcUrl = "jdbc:postgresql://${config.host}:${config.port}/${config.database}"
         val props = Properties().apply {
             setProperty("user", config.user)
