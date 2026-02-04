@@ -1,0 +1,65 @@
+{
+  "id": "1564405684712095895",
+  "store_id": "7442",
+  "category": "6001",
+  "department_id": [
+    "22888768"
+  ],
+  "unit_price": 12.59,
+  "popularity": 7670,
+  "pos_department": "60",
+  "quantity_maximum": 999.99,
+  "upc": "3077201036",
+  "status_id": "1",
+  "tag_ids": [
+    "22474153",
+    "22475760",
+    "245407",
+    "22888768",
+    "22919042"
+  ],
+  "fulfillment_type_ids": [
+    "1",
+    "2"
+  ],
+  "last_updated_at": "2026-01-19T11:21:37.000+00:00",
+  "reference_id": "00030772010365",
+  "reference_ids": [
+    "00030772010365"
+  ],
+  "name": "Febreze Car Vent Lush",
+  "is_weight_required": false,
+  "substitution_type_ids": [
+    "22920602",
+    "22920604",
+    "22920608",
+    "22920606",
+    "22920498",
+    "22920600"
+  ],
+  "note_configuration": {
+    "is_required": false,
+    "is_allowed": true
+  },
+  "upc_configuration": {
+    "type": "UPC-A"
+  },
+  "enforce_product_inventory": false,
+  "effective_quantity_on_hand": 0,
+  "has_featured_offer": false,
+  "status": "available",
+  "cover_image": "1564405684711675793/fd32f1a5331c0f3f7483d08783222226",
+  "is_place_holder_cover_image": true,
+  "identifier": "00030772010365",
+  "quantity_initial": 1.0,
+  "department_ids": [
+    "22888768"
+  ],
+  "fulfillment_type_id": "1",
+  "allow_user_product_notes": true,
+  "barcode_type": "UPC-A",
+  "barcode": "030772010365",
+  "barcode_upc_a": "030772010365",
+  "barcode_ean13": "0030772010365",
+  "canonical_url": "https://www.dropit.bm/shop/pantry/household/supplies_maintenance/automotive/febreze_car_vent_lush/p/1564405684712095895"
+}

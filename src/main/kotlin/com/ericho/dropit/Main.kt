@@ -27,11 +27,9 @@ fun main() = runBlocking {
     // Write to file
     val allDepartmentPretty = allDepartmentJson.toPrettyJson()
 
-    val productPretty = productJson.toPrettyJson()
 
     File("$tempDir/allDepartment.json").writeText(allDepartmentPretty)
 
-    File("$tempDir/singleProduct.json").writeText(productPretty)
 
     val databaseConfig = DatabaseConfig.fromEnv(dotenv)
     if (databaseConfig == null) {
@@ -42,7 +40,6 @@ fun main() = runBlocking {
             listOf(
                 SnapshotPayload("allDepartment", allDepartmentPretty),
 
-                SnapshotPayload("singleProduct", productPretty)
             )
         )
     }

@@ -34,15 +34,15 @@ data class SingleProductPayload(
     val name: String,
     @SerialName("is_weight_required")
     val isWeightRequired: Boolean,
-    val images: List<SingleProductImage>,
+    val images: List<SingleProductImage>?,
     @SerialName("substitution_type_ids")
-    val substitutionTypeIds: List<String>,
+    val substitutionTypeIds: List<String>?,
     @SerialName("note_configuration")
-    val noteConfiguration: NoteConfiguration,
+    val noteConfiguration: NoteConfiguration?,
     @SerialName("upc_configuration")
-    val upcConfiguration: UpcConfiguration,
+    val upcConfiguration: UpcConfiguration?,
     @SerialName("cover_image")
-    val coverImage: String,
+    val coverImage: String?,
     @SerialName("enforce_product_inventory")
     val enforceProductInventory: Boolean,
     @SerialName("effective_quantity_on_hand")
@@ -56,18 +56,18 @@ data class SingleProductPayload(
     @SerialName("department_ids")
     val departmentIds: List<String>,
     @SerialName("fulfillment_type_id")
-    val fulfillmentTypeId: String,
+    val fulfillmentTypeId: String?,
     @SerialName("allow_user_product_notes")
     val allowUserProductNotes: Boolean,
     @SerialName("barcode_type")
-    val barcodeType: String,
-    val barcode: String,
+    val barcodeType: String?,
+    val barcode: String?,
     @SerialName("barcode_upc_a")
-    val barcodeUpcA: String,
+    val barcodeUpcA: String?,
     @SerialName("barcode_ean13")
-    val barcodeEan13: String,
+    val barcodeEan13: String?,
     @SerialName("barcode_ean8")
-    val barcodeEan8: String,
+    val barcodeEan8: String?,
     @SerialName("canonical_url")
     val canonicalUrl: String
 )

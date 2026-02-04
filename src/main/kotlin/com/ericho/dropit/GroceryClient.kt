@@ -15,6 +15,7 @@ import kotlinx.serialization.json.Json
 import com.ericho.dropit.model.DepartmentPayload
 import com.ericho.dropit.model.ProductPayload
 import com.ericho.dropit.model.ProductSnapshot
+import com.ericho.dropit.model.SingleProductPayload
 
 class GroceryClient {
     private val URL_PRODUCT = "https://api.freshop.ncrcloud.com/1/products"
@@ -114,13 +115,13 @@ class GroceryClient {
 
     suspend fun fetchProductDetailAsJson(
         productId: Long
-    ): String {
+    ): SingleProductPayload {
         return http.get {
             url {
                 takeFrom(URL_PRODUCT_DETAIL)
                 appendPathSegments(productId.toString())
                 parameters.append("app_key", AppSetting.appKey)
             }
-        }.bodyAsText()
+        }.body()
     }
 }
