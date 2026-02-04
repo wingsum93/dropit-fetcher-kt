@@ -1,6 +1,7 @@
 package com.ericho.dropit
 
 import com.ericho.dropit.model.FetchOptions
+import com.ericho.dropit.network.RateLimit429Plugin
 import io.ktor.client.*
 import io.ktor.client.call.*
 import io.ktor.client.engine.cio.*
@@ -13,6 +14,8 @@ import io.ktor.client.statement.*
 import io.ktor.http.*
 import io.ktor.serialization.kotlinx.json.*
 import kotlinx.serialization.json.Json
+import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Duration.Companion.seconds
 import com.ericho.dropit.model.api.DepartmentPayload
 import com.ericho.dropit.model.api.ProductPayload
 import com.ericho.dropit.model.SingleProductPayload
@@ -37,9 +40,16 @@ class GroceryRepository {
             connectTimeoutMillis = 10_000
             socketTimeoutMillis = 20_000
         }
+        install(RateLimit429Plugin) {
+            maxRetries = 6
+            baseDelay = 750.milliseconds
+            maxDelay = 30.seconds
+            jitterRatio = 0.2
+            respectRetryAfter = true
+        }
         install(HttpRequestRetry) {
             maxRetries = 3
-            retryIf { _, response -> response.status.value in setOf(429, 500, 502, 503, 504) }
+            retryIf { _, response -> response.status.value in setOf(500, 502, 503, 504) }
             exponentialDelay()
         }
         install(Logging) {
