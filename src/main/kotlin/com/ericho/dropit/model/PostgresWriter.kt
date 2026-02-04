@@ -1,5 +1,6 @@
 package com.ericho.dropit.model
 
+import com.ericho.dropit.model.api.SnapshotPayload
 import java.sql.DriverManager
 import java.sql.Timestamp
 import java.time.Instant

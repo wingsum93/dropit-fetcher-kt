@@ -12,8 +12,8 @@ import io.ktor.client.statement.*
 import io.ktor.http.*
 import io.ktor.serialization.kotlinx.json.*
 import kotlinx.serialization.json.Json
-import com.ericho.dropit.model.DepartmentPayload
-import com.ericho.dropit.model.ProductPayload
+import com.ericho.dropit.model.api.DepartmentPayload
+import com.ericho.dropit.model.api.ProductPayload
 import com.ericho.dropit.model.ProductSnapshot
 import com.ericho.dropit.model.SingleProductPayload
 

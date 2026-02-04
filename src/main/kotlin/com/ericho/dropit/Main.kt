@@ -2,7 +2,7 @@ package com.ericho.dropit
 
 import com.ericho.dropit.model.DatabaseConfig
 import com.ericho.dropit.model.PostgresWriter
-import com.ericho.dropit.model.SnapshotPayload
+import com.ericho.dropit.model.api.SnapshotPayload
 import com.ericho.dropit.util.PrettyJson
 import io.github.cdimascio.dotenv.dotenv
 import kotlinx.coroutines.runBlocking

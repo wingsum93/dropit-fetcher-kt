@@ -1,4 +1,4 @@
-package com.ericho.dropit.model
+package com.ericho.dropit.model.api
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
