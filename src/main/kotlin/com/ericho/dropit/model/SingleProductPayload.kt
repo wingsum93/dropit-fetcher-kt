@@ -34,7 +34,7 @@ data class SingleProductPayload(
     val name: String,
     @SerialName("is_weight_required")
     val isWeightRequired: Boolean,
-    val images: List<SingleProductImage>?,
+    val images: List<SingleProductImage>? = null,
     @SerialName("substitution_type_ids")
     val substitutionTypeIds: List<String>?,
     @SerialName("note_configuration")
@@ -67,7 +67,7 @@ data class SingleProductPayload(
     @SerialName("barcode_ean13")
     val barcodeEan13: String?,
     @SerialName("barcode_ean8")
-    val barcodeEan8: String?,
+    val barcodeEan8: String? = null,
     @SerialName("canonical_url")
     val canonicalUrl: String
 )
