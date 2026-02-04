@@ -5,6 +5,8 @@ import io.ktor.client.call.*
 import io.ktor.client.engine.cio.*
 import io.ktor.client.plugins.*
 import io.ktor.client.plugins.contentnegotiation.*
+import io.ktor.client.plugins.logging.LogLevel
+import io.ktor.client.plugins.logging.Logging
 import io.ktor.client.request.*
 import io.ktor.client.statement.*
 import io.ktor.http.*
@@ -33,6 +35,9 @@ class GroceryClient {
             retryIf { _, response -> response.status.value in setOf(429, 500, 502, 503, 504) }
             exponentialDelay()
         }
+        install(Logging){
+            level = LogLevel.ALL
+        }
         defaultRequest {
             url("apiBaseUrl")
             header(HttpHeaders.Authorization, "Bearer abc")
@@ -55,23 +60,18 @@ class GroceryClient {
         departmentId: Int,
         storeId: Int = AppSetting.storeId7442,
     ): String {
-        // app_key
-        //include_departments
-        // department_id_cascade
-        // limit=0
-        //render_id
-        //token
 
-        val fields = listOf("id","store_id","department_id","status", "product_name").joinToString(",")
+        val fields = listOf("id","store_id","department_id","status", "product_name","path","count","parent_id","canonical_url").joinToString(",")
 
         return http.get(URL_PRODUCT) {
             url {
                 parameters.append("app_key", AppSetting.appKey)
                 parameters.append("store_id", storeId.toString())
-                parameters.append("department_id", storeId.toString())
+                parameters.append("department_id", departmentId.toString())
                 parameters.append("include_departments", true.toString())
                 parameters.append("token", AppSetting.sampleToken)
                 parameters.append("render_id", "1769356302366")
+                // can add skip param
                 parameters.append("popularity_sort", "asc")
                 parameters.append("limit", (96).toString())
                 parameters.append("department_id_cascade", true.toString())

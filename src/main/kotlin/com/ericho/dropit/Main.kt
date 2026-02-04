@@ -16,7 +16,7 @@ fun main() = runBlocking {
     val productsOfDepartmentA = client.fetchProductsFromDepartment(22888702)
     val productsOfDepartmentB = client.fetchProductsFromDepartment(22888712)
     val productsOfDepartmentC = client.fetchProductsFromDepartment(22888714)
-    val productsOfDepartmentD = client.fetchProductsFromDepartment(22888716)
+    val productsOfDepartmentD = client.fetchProductsFromDepartment(22887698)
 
     val productJson = client.fetchProductDetailAsJson(1564405684712095895L)
 
