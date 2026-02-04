@@ -1,3 +1,5 @@
+package com.ericho.dropit
+
 import com.ericho.dropit.model.SingleProductPayload
 import com.ericho.dropit.model.api.DepartmentPayload
 import kotlinx.serialization.json.Json
