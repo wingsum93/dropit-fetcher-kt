@@ -16,6 +16,7 @@ fun main() = runBlocking {
     val client = GroceryClient()
 
     val allDepartmentJson = client.fetchUrlAsJson("https://api.freshop.ncrcloud.com/1/products?app_key=lindos&department_id_cascade=true&include_departments=true&limit=0&render_id=1770110706171&store_id=7446&token=55538cf8dc7e26f2b8e6ff150c07acad")
+    val dePayload = client.fetchDepartments()
     val productsOfDepartmentA = client.fetchProductsFromDepartment(22888702)
     val productsOfDepartmentB = client.fetchProductsFromDepartment(22888712)
     val productsOfDepartmentC = client.fetchProductsFromDepartment(22888714)
@@ -25,17 +26,11 @@ fun main() = runBlocking {
 
     // Write to file
     val allDepartmentPretty = allDepartmentJson.toPrettyJson()
-    val productsOfDepartmentAPretty = productsOfDepartmentA.toString().toPrettyJson()
-    val productsOfDepartmentBPretty = productsOfDepartmentB.toString().toPrettyJson()
-    val productsOfDepartmentCPretty = productsOfDepartmentC.toString().toPrettyJson()
-    val productsOfDepartmentDPretty = productsOfDepartmentD.toString().toPrettyJson()
+
     val productPretty = productJson.toPrettyJson()
 
     File("$tempDir/allDepartment.json").writeText(allDepartmentPretty)
-    File("$tempDir/productsOfDepartmentA.json").writeText(productsOfDepartmentAPretty)
-    File("$tempDir/productsOfDepartmentB.json").writeText(productsOfDepartmentBPretty)
-    File("$tempDir/productsOfDepartmentC.json").writeText(productsOfDepartmentCPretty)
-    File("$tempDir/productsOfDepartmentD.json").writeText(productsOfDepartmentDPretty)
+
     File("$tempDir/singleProduct.json").writeText(productPretty)
 
     val databaseConfig = DatabaseConfig.fromEnv(dotenv)
@@ -46,10 +41,7 @@ fun main() = runBlocking {
             databaseConfig,
             listOf(
                 SnapshotPayload("allDepartment", allDepartmentPretty),
-                SnapshotPayload("productsOfDepartmentA", productsOfDepartmentAPretty),
-                SnapshotPayload("productsOfDepartmentB", productsOfDepartmentBPretty),
-                SnapshotPayload("productsOfDepartmentC", productsOfDepartmentCPretty),
-                SnapshotPayload("productsOfDepartmentD", productsOfDepartmentDPretty),
+
                 SnapshotPayload("singleProduct", productPretty)
             )
         )

@@ -13,6 +13,7 @@ import io.ktor.http.*
 import io.ktor.serialization.kotlinx.json.*
 import kotlinx.serialization.json.Json
 import com.ericho.dropit.model.DepartmentPayload
+import com.ericho.dropit.model.ProductPayload
 import com.ericho.dropit.model.ProductSnapshot
 
 class GroceryClient {
@@ -57,13 +58,28 @@ class GroceryClient {
     suspend fun fetchUrlAsJson(url: String): String {
         return http.get(url).bodyAsText()
     }
+    suspend fun fetchDepartments(
+        storeId: Int = AppSetting.storeId7442,
+    ): DepartmentPayload {
+        return http.get(URL_PRODUCT) {
+            url {
+                parameters.append("app_key", AppSetting.appKey)
+                parameters.append("store_id", storeId.toString())
 
+                parameters.append("include_departments", true.toString())
+                parameters.append("token", AppSetting.sampleToken)
+                parameters.append("render_id", "1769356302366")
+            }
+        }.body()
+    }
     suspend fun fetchProductsFromDepartment(
         departmentId: Int,
         storeId: Int = AppSetting.storeId7442,
-    ): DepartmentPayload {
+    ): ProductPayload {
 
-        val fields = listOf("id","store_id","department_id","status", "product_name","path","count","parent_id","canonical_url").joinToString(",")
+        val fields = listOf("id","store_id","department_id",
+            "status", "product_name","path","count","parent_id","canonical_url")
+            .joinToString(",")
 
         return http.get(URL_PRODUCT) {
             url {

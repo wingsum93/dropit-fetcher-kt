@@ -6,11 +6,11 @@ import kotlinx.serialization.Serializable
 @Serializable
 data class DepartmentPayload(
     val total: Int,
-    val departments: List<Department>
+    val departments: List<DepartmentDto>
 )
 
 @Serializable
-data class Department(
+data class DepartmentDto(
     val id: String,
     val count: Int,
     val sequence: Int,
