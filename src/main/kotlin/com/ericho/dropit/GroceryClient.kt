@@ -12,6 +12,8 @@ import io.ktor.client.statement.*
 import io.ktor.http.*
 import io.ktor.serialization.kotlinx.json.*
 import kotlinx.serialization.json.Json
+import com.ericho.dropit.model.DepartmentPayload
+import com.ericho.dropit.model.ProductSnapshot
 
 class GroceryClient {
     private val URL_PRODUCT = "https://api.freshop.ncrcloud.com/1/products"

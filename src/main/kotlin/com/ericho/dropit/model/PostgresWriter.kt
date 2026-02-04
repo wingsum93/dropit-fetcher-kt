@@ -1,18 +1,14 @@
-package com.ericho.dropit
+package com.ericho.dropit.model
 
 import java.sql.DriverManager
 import java.sql.Timestamp
 import java.time.Instant
-
-data class SnapshotPayload(
-    val key: String,
-    val json: String
-)
+import java.util.Properties
 
 object PostgresWriter {
     fun writeSnapshots(config: DatabaseConfig, snapshots: List<SnapshotPayload>) {
         val jdbcUrl = "jdbc:postgresql://${config.host}:${config.port}/${config.database}"
-        val props = java.util.Properties().apply {
+        val props = Properties().apply {
             setProperty("user", config.user)
             setProperty("password", config.password)
         }

@@ -49,3 +49,4 @@ bin/
 temp/
 abc/
 .env
+local.properties
