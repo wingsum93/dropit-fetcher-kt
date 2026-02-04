@@ -22,10 +22,10 @@ fun main() = runBlocking {
 
     // Write to file
     val allDepartmentPretty = allDepartmentJson.toPrettyJson()
-    val productsOfDepartmentAPretty = productsOfDepartmentA.toPrettyJson()
-    val productsOfDepartmentBPretty = productsOfDepartmentB.toPrettyJson()
-    val productsOfDepartmentCPretty = productsOfDepartmentC.toPrettyJson()
-    val productsOfDepartmentDPretty = productsOfDepartmentD.toPrettyJson()
+    val productsOfDepartmentAPretty = productsOfDepartmentA.toString().toPrettyJson()
+    val productsOfDepartmentBPretty = productsOfDepartmentB.toString().toPrettyJson()
+    val productsOfDepartmentCPretty = productsOfDepartmentC.toString().toPrettyJson()
+    val productsOfDepartmentDPretty = productsOfDepartmentD.toString().toPrettyJson()
     val productPretty = productJson.toPrettyJson()
 
     File("$tempDir/allDepartment.json").writeText(allDepartmentPretty)

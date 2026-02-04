@@ -59,7 +59,7 @@ class GroceryClient {
     suspend fun fetchProductsFromDepartment(
         departmentId: Int,
         storeId: Int = AppSetting.storeId7442,
-    ): String {
+    ): DepartmentPayload {
 
         val fields = listOf("id","store_id","department_id","status", "product_name","path","count","parent_id","canonical_url").joinToString(",")
 
@@ -77,7 +77,7 @@ class GroceryClient {
                 parameters.append("department_id_cascade", true.toString())
                 parameter("fields",fields)
             }
-        }.bodyAsText()
+        }.body()
     }
 
     suspend fun fetchProductDetailAsJson(
