@@ -1,5 +1,7 @@
 package com.ericho.dropit
 
+import com.ericho.dropit.model.FakeStorage
+import com.ericho.dropit.model.FetchOptions
 import io.github.cdimascio.dotenv.dotenv
 import kotlinx.coroutines.runBlocking
 import java.time.LocalDate
@@ -53,7 +55,19 @@ fun main(args: Array<String>) = runBlocking {
                   out=${options.out}
                 """.trimIndent()
             )
+            val storage  = FakeStorage()
+            val repo = GroceryRepository()
+            val service = DropitFetchService(repo,storage)
 
+            val fetchOptions = FetchOptions(
+                deptConcurrency = options.deptConcurrency,
+                detailConcurrency = options.detailConcurrency,
+                resume = options.resume,
+                since = options.since,
+                dryRun = options.dryRun
+            )
+            val report = service.run(fetchOptions)
+            println("Done. $report")
             // val report = service.syncAll(dryRun = options.dryRun, out = options.out)
             // println("Done. ${report}")
         }

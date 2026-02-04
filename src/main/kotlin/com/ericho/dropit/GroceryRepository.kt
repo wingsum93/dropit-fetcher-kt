@@ -1,5 +1,6 @@
 package com.ericho.dropit
 
+import com.ericho.dropit.model.FetchOptions
 import io.ktor.client.*
 import io.ktor.client.call.*
 import io.ktor.client.engine.cio.*
@@ -14,13 +15,15 @@ import io.ktor.serialization.kotlinx.json.*
 import kotlinx.serialization.json.Json
 import com.ericho.dropit.model.api.DepartmentPayload
 import com.ericho.dropit.model.api.ProductPayload
-import com.ericho.dropit.model.ProductSnapshot
 import com.ericho.dropit.model.SingleProductPayload
+import com.ericho.dropit.model.api.DepartmentDto
+import com.ericho.dropit.model.api.ProductDto
 
-class GroceryClient {
+class GroceryRepository {
     private val URL_PRODUCT = "https://api.freshop.ncrcloud.com/1/products"
     private val URL_PRODUCT_DETAIL = "https://api.freshop.ncrcloud.com/1/products/"
-    private val http = HttpClient(CIO) {
+    private val PAGE_SIZE = 96
+    private val httpClient = HttpClient(CIO) {
         install(ContentNegotiation) {
             json(
                 Json {
@@ -39,7 +42,7 @@ class GroceryClient {
             retryIf { _, response -> response.status.value in setOf(429, 500, 502, 503, 504) }
             exponentialDelay()
         }
-        install(Logging){
+        install(Logging) {
             level = LogLevel.ALL
         }
         defaultRequest {
@@ -49,20 +52,14 @@ class GroceryClient {
         }
     }
 
-    suspend fun fetchSnapshots(): List<ProductSnapshot> {
-        // TODO: change path + response model to your real API
-        // Example endpoint: GET /v1/products/prices
-        return http.get("/v1/products/prices")
-            .body()
+    suspend fun fetchUrlAsJson(url: String): String {
+        return httpClient.get(url).bodyAsText()
     }
 
-    suspend fun fetchUrlAsJson(url: String): String {
-        return http.get(url).bodyAsText()
-    }
-    suspend fun fetchDepartments(
+    suspend fun getAllDepartments(
         storeId: Int = AppSetting.storeId7442,
-    ): DepartmentPayload {
-        return http.get(URL_PRODUCT) {
+    ): List<DepartmentDto> {
+        return httpClient.get(URL_PRODUCT) {
             url {
                 parameters.append("app_key", AppSetting.appKey)
                 parameters.append("store_id", storeId.toString())
@@ -71,10 +68,13 @@ class GroceryClient {
                 parameters.append("token", AppSetting.sampleToken)
                 parameters.append("render_id", "1769356302366")
             }
-        }.body()
+        }.body<DepartmentPayload>().departments
     }
-    suspend fun fetchProductsFromDepartment(
+
+    // limit to 96 items
+    suspend fun getProductsFromDepartment(
         departmentId: Int,
+        pageNo: Int = 0,
         storeId: Int = AppSetting.storeId7442,
     ): ProductPayload {
 
@@ -96,7 +96,7 @@ class GroceryClient {
             "canonical_url"
         ).joinToString(",")
 
-        return http.get(URL_PRODUCT) {
+        return httpClient.get(URL_PRODUCT) {
             url {
                 parameters.append("app_key", AppSetting.appKey)
                 parameters.append("store_id", storeId.toString())
@@ -108,18 +108,34 @@ class GroceryClient {
                 parameters.append("popularity_sort", "asc")
                 parameters.append("limit", (96).toString())
                 parameters.append("department_id_cascade", true.toString())
-                parameter("fields",fields)
+                parameter("fields", fields)
+
+                if (pageNo > 0) {
+                    parameters.append("skip", (pageNo * PAGE_SIZE).toString())
+                }
             }
         }.body()
     }
 
-    suspend fun fetchProductDetailAsJson(
-        productId: Long
+    suspend fun getAllItemsInDepartment(departmentId: Int, fetchOptions: FetchOptions): List<ProductDto> {
+        val tempPool = mutableListOf<ProductDto>()
+        var pageNo = 0
+        do {
+            val payload = getProductsFromDepartment(departmentId, pageNo = pageNo)
+            val items = payload.items
+            tempPool.addAll(items)
+            pageNo++
+        } while (items.size < PAGE_SIZE)
+        return tempPool
+    }
+
+    suspend fun getItemDetail(
+        itemId: Long
     ): SingleProductPayload {
-        return http.get {
+        return httpClient.get {
             url {
                 takeFrom(URL_PRODUCT_DETAIL)
-                appendPathSegments(productId.toString())
+                appendPathSegments(itemId.toString())
                 parameters.append("app_key", AppSetting.appKey)
             }
         }.body()
