@@ -42,7 +42,10 @@ class DropitFetchService(
             .flatMapMerge(options.deptConcurrency) { dept ->
                 repo.getAllItemsInDepartment(dept.id.toInt(), options)
                     .asFlow()
-                    .onEach { itemCount.incrementAndGet() }
+                    .onEach {
+                        println("itemId = ${it.id}")
+                        itemCount.incrementAndGet()
+                    }
             }
             .buffer(200)
             .flatMapMerge(options.detailConcurrency) { item ->

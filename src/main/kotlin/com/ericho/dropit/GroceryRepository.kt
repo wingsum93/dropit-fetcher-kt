@@ -125,7 +125,7 @@ class GroceryRepository {
             val items = payload.items
             tempPool.addAll(items)
             pageNo++
-        } while (items.size < PAGE_SIZE)
+        } while (items.size == PAGE_SIZE)
         return tempPool
     }
 
