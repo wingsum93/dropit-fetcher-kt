@@ -12,6 +12,6 @@ data class ProductPayload(
 @Serializable
 data class ProductDto(
     val id: String,
-    val count: Int,
+
 
 )

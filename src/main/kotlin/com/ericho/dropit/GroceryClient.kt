@@ -77,9 +77,23 @@ class GroceryClient {
         storeId: Int = AppSetting.storeId7442,
     ): ProductPayload {
 
-        val fields = listOf("id","store_id","department_id",
-            "status", "product_name","path","count","parent_id","canonical_url")
-            .joinToString(",")
+        val fields = listOf(
+            "id",
+            "store_id",
+            "department_id",
+            "status",
+            "product_name",
+            "price",
+            "unit_price",
+            "popularity",
+            "upc",
+            "size",
+            "cover_image",
+            "path",
+            "count",
+            "parent_id",
+            "canonical_url"
+        ).joinToString(",")
 
         return http.get(URL_PRODUCT) {
             url {
