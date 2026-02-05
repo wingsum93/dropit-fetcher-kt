@@ -1,9 +1,11 @@
 package com.ericho.dropit
 
-import com.ericho.dropit.model.adapter.FakeStorage
+import com.ericho.dropit.model.adapter.SqliteStorage
 import com.ericho.dropit.model.FetchOptions
 import io.github.cdimascio.dotenv.dotenv
 import kotlinx.coroutines.runBlocking
+import java.nio.file.Files
+import java.nio.file.Paths
 import java.time.LocalDate
 import java.time.format.DateTimeParseException
 import kotlin.system.exitProcess
@@ -22,6 +24,9 @@ data class CliOptions(
 fun main(args: Array<String>) = runBlocking {
     val dotenv = dotenv()
     val tempDir = dotenv["TEMP_FOLDER"] ?: System.getenv("TEMP_FOLDER") ?: "temp"
+    val tempDirPath = Paths.get(tempDir).toAbsolutePath().normalize()
+    Files.createDirectories(tempDirPath)
+    val sqlitePath = tempDirPath.resolve("dropit.sqlite").toString()
     val (options, command) = try {
         parseArgs(args)
     } catch (e: CliArgException) {
@@ -53,9 +58,10 @@ fun main(args: Array<String>) = runBlocking {
                   dryRun=${options.dryRun}
                   baseUrl=${options.baseUrl}
                   out=${options.out}
+                  sqlitePath=${sqlitePath}
                 """.trimIndent()
             )
-            val storage  = FakeStorage()
+            val storage  = SqliteStorage(sqlitePath)
             val repo = GroceryRepository()
             val service = DropitFetchService(repo,storage)
 

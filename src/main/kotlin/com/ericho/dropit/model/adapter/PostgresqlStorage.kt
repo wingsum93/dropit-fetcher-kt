@@ -5,6 +5,7 @@ import com.ericho.dropit.model.SingleProductPayload
 import com.ericho.dropit.model.api.SnapshotPayload
 import com.ericho.dropit.model.db.PostgresSnapshotDialect
 import com.ericho.dropit.model.db.ProductSnapshotDao
+import com.ericho.dropit.model.entity.ProductEntity
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.sql.DriverManager
@@ -20,6 +21,10 @@ class PostgresqlStorage(private val config: DatabaseConfig) : Storage {
             json = json.encodeToString(detail)
         )
         writeSnapshots(listOf(snapshot))
+    }
+
+    override fun upsert(product: ProductEntity) {
+        // no-op for now
     }
 
     private fun writeSnapshots(snapshots: List<SnapshotPayload>) {
