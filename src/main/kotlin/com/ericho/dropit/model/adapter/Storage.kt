@@ -1,8 +1,10 @@
 package com.ericho.dropit.model.adapter
 import com.ericho.dropit.model.SingleProductPayload
-import com.ericho.dropit.model.entity.ProductEntity
 
-interface Storage {
-    fun upsert(detail: SingleProductPayload)
-    fun upsert(product: ProductEntity)
+interface Storage : AutoCloseable {
+    fun upsertSnapshot(detail: SingleProductPayload)
+
+    override fun close() {
+        // default no-op
+    }
 }

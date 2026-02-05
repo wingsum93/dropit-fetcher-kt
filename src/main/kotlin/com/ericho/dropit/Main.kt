@@ -1,5 +1,8 @@
 package com.ericho.dropit
 
+import com.ericho.dropit.model.DatabaseConfig
+import com.ericho.dropit.model.adapter.PostgresqlStorage
+import com.ericho.dropit.model.adapter.Storage
 import com.ericho.dropit.model.adapter.SqliteStorage
 import com.ericho.dropit.model.FetchOptions
 import io.github.cdimascio.dotenv.dotenv
@@ -61,19 +64,24 @@ fun main(args: Array<String>) = runBlocking {
                   sqlitePath=${sqlitePath}
                 """.trimIndent()
             )
-            val storage  = SqliteStorage(sqlitePath)
+            val storage = createStorage(sqlitePath = sqlitePath, postgresConfig = null)
+            println("storageBackend=${storage::class.simpleName}")
             val repo = GroceryRepository()
-            val service = DropitFetchService(repo,storage)
+            val service = DropitFetchService(repo, storage)
 
-            val fetchOptions = FetchOptions(
-                deptConcurrency = options.deptConcurrency,
-                detailConcurrency = options.detailConcurrency,
-                resume = options.resume,
-                since = options.since,
-                dryRun = options.dryRun
-            )
-            val report = service.run(fetchOptions)
-            println("Done. $report")
+            try {
+                val fetchOptions = FetchOptions(
+                    deptConcurrency = options.deptConcurrency,
+                    detailConcurrency = options.detailConcurrency,
+                    resume = options.resume,
+                    since = options.since,
+                    dryRun = options.dryRun
+                )
+                val report = service.run(fetchOptions)
+                println("Done. $report")
+            } finally {
+                storage.close()
+            }
             // val report = service.syncAll(dryRun = options.dryRun, out = options.out)
             // println("Done. ${report}")
         }
@@ -87,6 +95,26 @@ fun main(args: Array<String>) = runBlocking {
     }
 
 
+}
+
+internal fun createStorage(sqlitePath: String, postgresConfig: DatabaseConfig?): Storage {
+    return when (selectStorageBackend(postgresConfig)) {
+        StorageBackend.POSTGRES -> PostgresqlStorage(checkNotNull(postgresConfig))
+        StorageBackend.SQLITE -> SqliteStorage(sqlitePath)
+    }
+}
+
+internal fun selectStorageBackend(postgresConfig: DatabaseConfig?): StorageBackend {
+    return if (postgresConfig != null) {
+        StorageBackend.POSTGRES
+    } else {
+        StorageBackend.SQLITE
+    }
+}
+
+internal enum class StorageBackend {
+    SQLITE,
+    POSTGRES
 }
 
 /** ---------------- CLI parsing ---------------- */

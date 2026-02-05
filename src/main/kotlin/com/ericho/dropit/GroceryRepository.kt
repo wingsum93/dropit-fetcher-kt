@@ -22,7 +22,7 @@ import com.ericho.dropit.model.SingleProductPayload
 import com.ericho.dropit.model.api.DepartmentDto
 import com.ericho.dropit.model.api.ProductDto
 
-class GroceryRepository {
+class GroceryRepository : GroceryDataSource {
     private val URL_PRODUCT = "https://api.freshop.ncrcloud.com/1/products"
     private val URL_PRODUCT_DETAIL = "https://api.freshop.ncrcloud.com/1/products/"
     private val PAGE_SIZE = 96
@@ -68,8 +68,8 @@ class GroceryRepository {
         return httpClient.get(url).bodyAsText()
     }
 
-    suspend fun getAllDepartments(
-        storeId: Int = AppSetting.storeId7442,
+    override suspend fun getAllDepartments(
+        storeId: Int,
     ): List<DepartmentDto> {
         return httpClient.get(URL_PRODUCT) {
             url {
@@ -129,7 +129,7 @@ class GroceryRepository {
         }.body()
     }
 
-    suspend fun getAllItemsInDepartment(departmentId: Int, fetchOptions: FetchOptions): List<ProductDto> {
+    override suspend fun getAllItemsInDepartment(departmentId: Int, fetchOptions: FetchOptions): List<ProductDto> {
         val tempPool = mutableListOf<ProductDto>()
         var pageNo = 0
         do {
@@ -141,7 +141,7 @@ class GroceryRepository {
         return tempPool
     }
 
-    suspend fun getItemDetail(
+    override suspend fun getItemDetail(
         itemId: Long
     ): SingleProductPayload {
         return httpClient.get {

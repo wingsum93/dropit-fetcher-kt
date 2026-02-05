@@ -16,7 +16,7 @@ import java.util.concurrent.atomic.AtomicInteger
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class DropitFetchService(
-    private val repo: GroceryRepository = GroceryRepository(),
+    private val repo: GroceryDataSource = GroceryRepository(),
     private val storage: Storage
 ) {
 
@@ -55,7 +55,7 @@ class DropitFetchService(
                             val detail = repo.getItemDetail(item.id.toLong())
 
                             if (!options.dryRun) {
-                                storage.upsert(detail)
+                                storage.upsertSnapshot(detail)
                             }
 
                             detailCount.incrementAndGet()
@@ -63,7 +63,10 @@ class DropitFetchService(
 
                         } catch (e: Exception) {
                             failed.incrementAndGet()
-                            println("Failed item ${item.id}: ${e.message}")
+                            System.err.println(
+                                "event=sync_item_failed itemId=${item.id} " +
+                                    "error=${e::class.simpleName} message=${e.message}"
+                            )
                         }
                     }
                 }
