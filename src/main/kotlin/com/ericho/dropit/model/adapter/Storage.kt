@@ -4,6 +4,7 @@ import com.ericho.dropit.model.entity.JobEntity
 import com.ericho.dropit.model.entity.JobStatus
 import com.ericho.dropit.model.entity.JobType
 import com.ericho.dropit.model.entity.ProductEntity
+import com.ericho.dropit.model.entity.SyncEntity
 import java.time.Instant
 
 interface Storage : AutoCloseable {
@@ -24,6 +25,9 @@ interface Storage : AutoCloseable {
     fun findByDedupeKey(syncId: Int, key: String): JobEntity?
     fun updateJobStatusById(id: Int, status: JobStatus)
     fun updateJobStatusByIds(ids: List<Int>, status: JobStatus)
+    fun findSyncEntityLeft(): SyncEntity?
+    fun createSyncEntity(): SyncEntity
+    fun updateSyncEntity(entity: SyncEntity): SyncEntity
 
     override fun close() {
         // default no-op

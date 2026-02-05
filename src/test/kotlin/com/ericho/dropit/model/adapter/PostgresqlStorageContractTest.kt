@@ -6,6 +6,7 @@ import com.ericho.dropit.model.entity.JobEntity
 import com.ericho.dropit.model.entity.JobStatus
 import com.ericho.dropit.model.entity.JobType
 import com.ericho.dropit.model.entity.ProductEntity
+import com.ericho.dropit.model.entity.SyncStatus
 import org.junit.jupiter.api.Assumptions.assumeTrue
 import org.junit.jupiter.api.Test
 import java.sql.DriverManager
@@ -33,6 +34,22 @@ class PostgresqlStorageContractTest {
                         FROM information_schema.tables
                         WHERE table_schema = 'public'
                           AND table_name = 'products'
+                    )
+                    """.trimIndent()
+                ).use { stmt ->
+                    stmt.executeQuery().use { rs ->
+                        rs.next()
+                        assertTrue(rs.getBoolean(1))
+                    }
+                }
+
+                connection.prepareStatement(
+                    """
+                    SELECT EXISTS (
+                        SELECT 1
+                        FROM information_schema.tables
+                        WHERE table_schema = 'public'
+                          AND table_name = 'syncs'
                     )
                     """.trimIndent()
                 ).use { stmt ->
@@ -319,6 +336,82 @@ class PostgresqlStorageContractTest {
         }
     }
 
+    @Test
+    fun `createSyncEntity returns defaults with generated id`() {
+        val config = postgresConfigOrNull()
+        assumeTrue(config != null, "Postgres test config is not available")
+
+        val storage = PostgresqlStorage(config!!)
+        val createdId = mutableListOf<Int>()
+        try {
+            val created = storage.createSyncEntity()
+            val id = created.id ?: error("missing sync id")
+            createdId.add(id)
+            assertTrue(id > 0)
+            assertEquals(0, created.attempts)
+            assertEquals(SyncStatus.PENDING, created.status)
+            assertNull(created.finishedAt)
+        } finally {
+            cleanupSyncs(config, createdId)
+            storage.close()
+        }
+    }
+
+    @Test
+    fun `findSyncEntityLeft returns latest running by id`() {
+        val config = postgresConfigOrNull()
+        assumeTrue(config != null, "Postgres test config is not available")
+
+        val storage = PostgresqlStorage(config!!)
+        val createdIds = mutableListOf<Int>()
+        try {
+            val first = storage.createSyncEntity()
+            val second = storage.createSyncEntity()
+            val third = storage.createSyncEntity()
+            createdIds.addAll(listOf(first.id!!, second.id!!, third.id!!))
+
+            storage.updateSyncEntity(first.copy(status = SyncStatus.RUNNING, attempts = 1))
+            storage.updateSyncEntity(second.copy(status = SyncStatus.DONE, attempts = 1))
+            val updatedThird = storage.updateSyncEntity(third.copy(status = SyncStatus.RUNNING, attempts = 2))
+
+            val left = storage.findSyncEntityLeft()
+            assertEquals(updatedThird.id, left?.id)
+            assertEquals(SyncStatus.RUNNING, left?.status)
+        } finally {
+            cleanupSyncs(config, createdIds)
+            storage.close()
+        }
+    }
+
+    @Test
+    fun `updateSyncEntity updates status attempts and finishedAt`() {
+        val config = postgresConfigOrNull()
+        assumeTrue(config != null, "Postgres test config is not available")
+
+        val storage = PostgresqlStorage(config!!)
+        val createdIds = mutableListOf<Int>()
+        try {
+            val created = storage.createSyncEntity()
+            createdIds.add(created.id ?: error("missing sync id"))
+            val finishedAt = Instant.parse("2026-04-01T00:00:00Z")
+
+            val updated = storage.updateSyncEntity(
+                created.copy(
+                    status = SyncStatus.DONE,
+                    attempts = 3,
+                    finishedAt = finishedAt
+                )
+            )
+
+            assertEquals(SyncStatus.DONE, updated.status)
+            assertEquals(3, updated.attempts)
+            assertEquals(finishedAt, updated.finishedAt)
+        } finally {
+            cleanupSyncs(config, createdIds)
+            storage.close()
+        }
+    }
+
     private fun withPostgresConnection(config: DatabaseConfig, block: (java.sql.Connection) -> Unit) {
         val jdbcUrl = "jdbc:postgresql://${config.host}:${config.port}/${config.database}"
         val props = Properties().apply {
@@ -335,6 +428,16 @@ class PostgresqlStorageContractTest {
                 "DELETE FROM products WHERE id = ANY (?)"
             ).use { stmt ->
                 stmt.setArray(1, connection.createArrayOf("bigint", productIds.toTypedArray()))
+                stmt.executeUpdate()
+            }
+        }
+    }
+
+    private fun cleanupSyncs(config: DatabaseConfig, syncIds: List<Int>) {
+        if (syncIds.isEmpty()) return
+        withPostgresConnection(config) { connection ->
+            connection.prepareStatement("DELETE FROM syncs WHERE id = ANY (?)").use { stmt ->
+                stmt.setArray(1, connection.createArrayOf("integer", syncIds.toTypedArray()))
                 stmt.executeUpdate()
             }
         }

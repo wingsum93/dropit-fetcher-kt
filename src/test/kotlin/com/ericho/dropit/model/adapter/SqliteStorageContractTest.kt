@@ -5,6 +5,7 @@ import com.ericho.dropit.model.entity.JobEntity
 import com.ericho.dropit.model.entity.JobStatus
 import com.ericho.dropit.model.entity.JobType
 import com.ericho.dropit.model.entity.ProductEntity
+import com.ericho.dropit.model.entity.SyncStatus
 import org.junit.jupiter.api.Test
 import java.nio.file.Files
 import java.sql.DriverManager
@@ -43,6 +44,14 @@ class SqliteStorageContractTest {
                 ).use { stmt ->
                     stmt.executeQuery().use { rs ->
                         assertTrue(rs.next(), "Expected jobs table to exist")
+                    }
+                }
+
+                connection.prepareStatement(
+                    "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'syncs'"
+                ).use { stmt ->
+                    stmt.executeQuery().use { rs ->
+                        assertTrue(rs.next(), "Expected syncs table to exist")
                     }
                 }
             }
@@ -413,6 +422,71 @@ class SqliteStorageContractTest {
             storage.updateJobStatusByIds(listOf(firstId, secondId), JobStatus.SUCCESS)
             val done = storage.findJobsByType(1, JobType.FETCH_PRODUCT, JobStatus.SUCCESS)
             assertEquals(2, done.size)
+        } finally {
+            storage.close()
+            Files.deleteIfExists(dbPath)
+        }
+    }
+
+    @Test
+    fun `createSyncEntity returns defaults with generated id`() {
+        val dbPath = Files.createTempFile("dropit-storage-sync-create-", ".sqlite")
+        val storage = SqliteStorage(dbPath.toString())
+
+        try {
+            val created = storage.createSyncEntity()
+            assertTrue((created.id ?: 0) > 0)
+            assertEquals(0, created.attempts)
+            assertEquals(SyncStatus.PENDING, created.status)
+            assertNull(created.finishedAt)
+        } finally {
+            storage.close()
+            Files.deleteIfExists(dbPath)
+        }
+    }
+
+    @Test
+    fun `findSyncEntityLeft returns latest running by id`() {
+        val dbPath = Files.createTempFile("dropit-storage-sync-find-left-", ".sqlite")
+        val storage = SqliteStorage(dbPath.toString())
+
+        try {
+            val first = storage.createSyncEntity()
+            val second = storage.createSyncEntity()
+            val third = storage.createSyncEntity()
+
+            storage.updateSyncEntity(first.copy(status = SyncStatus.RUNNING, attempts = 1))
+            storage.updateSyncEntity(second.copy(status = SyncStatus.DONE, attempts = 1))
+            val updatedThird = storage.updateSyncEntity(third.copy(status = SyncStatus.RUNNING, attempts = 2))
+
+            val left = storage.findSyncEntityLeft()
+            assertEquals(updatedThird.id, left?.id)
+            assertEquals(SyncStatus.RUNNING, left?.status)
+        } finally {
+            storage.close()
+            Files.deleteIfExists(dbPath)
+        }
+    }
+
+    @Test
+    fun `updateSyncEntity updates status attempts and finishedAt`() {
+        val dbPath = Files.createTempFile("dropit-storage-sync-update-", ".sqlite")
+        val storage = SqliteStorage(dbPath.toString())
+
+        try {
+            val created = storage.createSyncEntity()
+            val finishedAt = Instant.parse("2026-04-01T00:00:00Z")
+            val updated = storage.updateSyncEntity(
+                created.copy(
+                    status = SyncStatus.DONE,
+                    attempts = 3,
+                    finishedAt = finishedAt
+                )
+            )
+
+            assertEquals(SyncStatus.DONE, updated.status)
+            assertEquals(3, updated.attempts)
+            assertEquals(finishedAt, updated.finishedAt)
         } finally {
             storage.close()
             Files.deleteIfExists(dbPath)

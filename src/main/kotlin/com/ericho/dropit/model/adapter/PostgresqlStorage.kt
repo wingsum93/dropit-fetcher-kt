@@ -6,6 +6,8 @@ import com.ericho.dropit.model.entity.JobEntity
 import com.ericho.dropit.model.entity.JobStatus
 import com.ericho.dropit.model.entity.JobType
 import com.ericho.dropit.model.entity.ProductEntity
+import com.ericho.dropit.model.entity.SyncEntity
+import com.ericho.dropit.model.entity.SyncStatus
 import com.zaxxer.hikari.HikariConfig
 import com.zaxxer.hikari.HikariDataSource
 import org.jooq.DSLContext
@@ -49,7 +51,14 @@ class PostgresqlStorage(private val config: DatabaseConfig) : Storage {
     private val jobUpdatedAtField = DSL.field("updated_at", Timestamp::class.java)
     private val jobDedupeKeyField = DSL.field("dedupe_key", String::class.java)
 
-    private val managedTables = listOf("products", "departments", "jobs")
+    private val syncsTable = DSL.table("syncs")
+    private val syncIdField = DSL.field("id", Int::class.java)
+    private val syncAttemptsField = DSL.field("attempts", Int::class.java)
+    private val syncStatusField = DSL.field("status", String::class.java)
+    private val syncFinishedAtField = DSL.field("finished_at", Timestamp::class.java)
+
+    private val managedTables = listOf("products", "departments", "jobs", "syncs")
+    private val requiredTablesForStaleCheck = listOf("products", "departments", "jobs")
 
     private val expectedColumnsByTable: Map<String, Set<String>> = mapOf(
         "products" to setOf(
@@ -83,6 +92,12 @@ class PostgresqlStorage(private val config: DatabaseConfig) : Storage {
             "created_at",
             "updated_at",
             "dedupe_key"
+        ),
+        "syncs" to setOf(
+            "id",
+            "attempts",
+            "status",
+            "finished_at"
         )
     )
 
@@ -108,6 +123,7 @@ class PostgresqlStorage(private val config: DatabaseConfig) : Storage {
                 ensureProductsSchema(ctx)
                 ensureDepartmentsSchema(ctx)
                 ensureJobsSchema(ctx)
+                ensureSyncsSchema(ctx)
                 ensureJobsTrigger(ctx)
             }
         } catch (exception: Exception) {
@@ -451,6 +467,69 @@ class PostgresqlStorage(private val config: DatabaseConfig) : Storage {
         }
     }
 
+    override fun findSyncEntityLeft(): SyncEntity? {
+        try {
+            return dataSource.connection.use { connection ->
+                val ctx = DSL.using(connection, SQLDialect.POSTGRES)
+                ctx.selectFrom(syncsTable)
+                    .where(syncStatusField.eq(SyncStatus.RUNNING.name))
+                    .orderBy(syncIdField.desc())
+                    .limit(1)
+                    .fetchOne { mapSync(it) }
+            }
+        } catch (exception: Exception) {
+            fail("findSyncEntityLeft", "RUNNING", exception)
+        }
+    }
+
+    override fun createSyncEntity(): SyncEntity {
+        try {
+            return dataSource.connection.use { connection ->
+                val ctx = DSL.using(connection, SQLDialect.POSTGRES)
+                ctx.insertInto(syncsTable)
+                    .defaultValues()
+                    .returning(syncIdField, syncAttemptsField, syncStatusField, syncFinishedAtField)
+                    .fetchOne()
+                    ?.let { mapSync(it) }
+                    ?: throw IllegalStateException("Failed to create sync row")
+            }
+        } catch (exception: Exception) {
+            fail("createSyncEntity", "new", exception)
+        }
+    }
+
+    override fun updateSyncEntity(entity: SyncEntity): SyncEntity {
+        val syncId = entity.id ?: throw IllegalArgumentException("sync id is required")
+        try {
+            return dataSource.connection.use { connection ->
+                val ctx = DSL.using(connection, SQLDialect.POSTGRES)
+                val updated = ctx.update(syncsTable)
+                    .set(syncAttemptsField, entity.attempts)
+                    .set(syncStatusField, entity.status.name)
+                    .set(syncFinishedAtField, entity.finishedAt?.let(Timestamp::from))
+                    .where(syncIdField.eq(syncId))
+                    .execute()
+
+                if (updated == 0) {
+                    throw StorageWriteException(
+                        backend = "postgres",
+                        operation = "updateSyncEntity",
+                        key = syncId.toString(),
+                        cause = IllegalStateException("Sync not found: $syncId")
+                    )
+                }
+
+                ctx.selectFrom(syncsTable)
+                    .where(syncIdField.eq(syncId))
+                    .fetchOne { mapSync(it) }
+                    ?: throw IllegalStateException("Failed to read updated sync row: $syncId")
+            }
+        } catch (exception: Exception) {
+            if (exception is StorageWriteException) throw exception
+            fail("updateSyncEntity", syncId.toString(), exception)
+        }
+    }
+
     override fun close() {
         dataSource.close()
     }
@@ -474,17 +553,18 @@ class PostgresqlStorage(private val config: DatabaseConfig) : Storage {
             """.trimIndent()
         )
         ctx.execute("DROP FUNCTION IF EXISTS set_jobs_updated_at()")
+        ctx.execute("DROP TABLE IF EXISTS syncs CASCADE")
         ctx.execute("DROP TABLE IF EXISTS jobs CASCADE")
         ctx.execute("DROP TABLE IF EXISTS departments CASCADE")
         ctx.execute("DROP TABLE IF EXISTS products CASCADE")
     }
 
     private fun isSchemaStale(ctx: DSLContext): Boolean {
-        val existingTableCount = managedTables.count { tableExists(ctx, it) }
-        if (existingTableCount == 0) return false
-        if (existingTableCount != managedTables.size) return true
+        val existingTables = managedTables.filter { tableExists(ctx, it) }
+        if (existingTables.isEmpty()) return false
+        if (!requiredTablesForStaleCheck.all { tableExists(ctx, it) }) return true
 
-        return managedTables.any { tableName ->
+        return existingTables.any { tableName ->
             currentColumns(ctx, tableName) != expectedColumnsByTable.getValue(tableName)
         }
     }
@@ -608,6 +688,28 @@ class PostgresqlStorage(private val config: DatabaseConfig) : Storage {
             .execute()
     }
 
+    private fun ensureSyncsSchema(ctx: DSLContext) {
+        val id = DSL.field("id", SQLDataType.INTEGER.identity(true).nullable(false))
+        val attempts = DSL.field("attempts", SQLDataType.INTEGER.nullable(false).defaultValue(0))
+        val status = DSL.field(
+            "status",
+            SQLDataType.VARCHAR(32).nullable(false).defaultValue(SyncStatus.PENDING.name)
+        )
+        val finishedAt = DSL.field("finished_at", SQLDataType.TIMESTAMPWITHTIMEZONE.nullable(true))
+
+        ctx.createTableIfNotExists(syncsTable)
+            .column(id)
+            .column(attempts)
+            .column(status)
+            .column(finishedAt)
+            .constraints(DSL.primaryKey(id))
+            .execute()
+
+        ctx.createIndexIfNotExists("idx_syncs_status_id")
+            .on(syncsTable, syncStatusField, syncIdField)
+            .execute()
+    }
+
     private fun ensureJobsTrigger(ctx: DSLContext) {
         ctx.execute(
             """
@@ -680,6 +782,15 @@ class PostgresqlStorage(private val config: DatabaseConfig) : Storage {
             dedupeKey = record.get(jobDedupeKeyField) ?: "",
             createdAt = record.get(jobCreatedAtField)?.toInstant() ?: Instant.EPOCH,
             updatedAt = record.get(jobUpdatedAtField)?.toInstant() ?: Instant.EPOCH
+        )
+    }
+
+    private fun mapSync(record: Record): SyncEntity {
+        return SyncEntity(
+            id = record.get("id", Number::class.java)?.toInt(),
+            attempts = record.get(syncAttemptsField) ?: 0,
+            status = SyncStatus.valueOf(record.get(syncStatusField) ?: SyncStatus.PENDING.name),
+            finishedAt = record.get(syncFinishedAtField)?.toInstant()
         )
     }
 

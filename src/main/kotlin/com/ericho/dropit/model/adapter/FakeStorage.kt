@@ -5,13 +5,17 @@ import com.ericho.dropit.model.entity.JobEntity
 import com.ericho.dropit.model.entity.JobStatus
 import com.ericho.dropit.model.entity.JobType
 import com.ericho.dropit.model.entity.ProductEntity
+import com.ericho.dropit.model.entity.SyncEntity
+import com.ericho.dropit.model.entity.SyncStatus
 import java.time.Instant
 
 class FakeStorage : Storage {
     private val productsById: MutableMap<Long, ProductEntity> = mutableMapOf()
     private val departmentsById: MutableMap<Int, DepartmentEntity> = mutableMapOf()
     private val jobsById: MutableMap<Int, JobEntity> = mutableMapOf()
+    private val syncsById: MutableMap<Int, SyncEntity> = mutableMapOf()
     private var nextJobId: Int = 1
+    private var nextSyncId: Int = 1
 
     override fun findProductById(productId: Long): ProductEntity? {
         return productsById[productId]
@@ -169,6 +173,35 @@ class FakeStorage : Storage {
             val existing = jobsById.getValue(id)
             jobsById[id] = existing.copy(status = status, updatedAt = now)
         }
+    }
+
+    override fun findSyncEntityLeft(): SyncEntity? {
+        return syncsById.values
+            .asSequence()
+            .filter { it.status == SyncStatus.RUNNING }
+            .maxByOrNull { it.id ?: Int.MIN_VALUE }
+    }
+
+    override fun createSyncEntity(): SyncEntity {
+        val syncId = nextSyncId++
+        val entity = SyncEntity(id = syncId)
+        syncsById[syncId] = entity
+        return entity
+    }
+
+    override fun updateSyncEntity(entity: SyncEntity): SyncEntity {
+        val id = entity.id ?: throw IllegalArgumentException("sync id is required")
+        if (!syncsById.containsKey(id)) {
+            throw StorageWriteException(
+                backend = "fake",
+                operation = "updateSyncEntity",
+                key = id.toString(),
+                cause = IllegalStateException("Sync not found: $id")
+            )
+        }
+
+        syncsById[id] = entity
+        return entity
     }
 
     private fun validateDedupeKey(key: String) {
