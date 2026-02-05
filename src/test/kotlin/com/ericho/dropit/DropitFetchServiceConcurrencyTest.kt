@@ -9,7 +9,6 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import org.junit.jupiter.api.Test
 import java.nio.file.Files
-import java.sql.DriverManager
 import kotlin.test.assertEquals
 
 class DropitFetchServiceConcurrencyTest {
@@ -19,7 +18,7 @@ class DropitFetchServiceConcurrencyTest {
     }
 
     @Test
-    fun `parallel writes through service do not drop snapshots`() = runBlocking {
+    fun `parallel fetch through service completes all details`() = runBlocking {
         val itemsPerDepartment = 30
         val departmentCount = 2
         val expectedSnapshots = itemsPerDepartment * departmentCount
@@ -45,18 +44,6 @@ class DropitFetchServiceConcurrencyTest {
 
             assertEquals(expectedSnapshots, report.details)
             assertEquals(0, report.failed)
-
-            DriverManager.getConnection("jdbc:sqlite:${dbPath}").use { connection ->
-                val rowCount = connection.prepareStatement(
-                    "SELECT COUNT(*) FROM product_snapshots"
-                ).use { stmt ->
-                    stmt.executeQuery().use { rs ->
-                        rs.next()
-                        rs.getInt(1)
-                    }
-                }
-                assertEquals(expectedSnapshots, rowCount)
-            }
         } finally {
             storage.close()
             Files.deleteIfExists(dbPath)

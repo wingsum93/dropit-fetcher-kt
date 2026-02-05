@@ -1,13 +1,11 @@
 package com.ericho.dropit.model.adapter
 
 import com.ericho.dropit.model.DatabaseConfig
-import com.ericho.dropit.model.SingleProductPayload
 import com.ericho.dropit.model.entity.DepartmentEntity
 import com.ericho.dropit.model.entity.JobEntity
 import com.ericho.dropit.model.entity.JobStatus
 import com.ericho.dropit.model.entity.JobType
 import com.ericho.dropit.model.entity.ProductEntity
-import kotlinx.serialization.json.Json
 import org.junit.jupiter.api.Assumptions.assumeTrue
 import org.junit.jupiter.api.Test
 import java.sql.DriverManager
@@ -20,11 +18,6 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class PostgresqlStorageContractTest {
-    private val json = Json {
-        ignoreUnknownKeys = true
-        isLenient = true
-    }
-
     @Test
     fun `schema exists after startup`() {
         val config = postgresConfigOrNull()
@@ -39,7 +32,7 @@ class PostgresqlStorageContractTest {
                         SELECT 1
                         FROM information_schema.tables
                         WHERE table_schema = 'public'
-                          AND table_name = 'product_snapshots'
+                          AND table_name = 'products'
                     )
                     """.trimIndent()
                 ).use { stmt ->
@@ -50,54 +43,6 @@ class PostgresqlStorageContractTest {
                 }
             }
         } finally {
-            storage.close()
-        }
-    }
-
-    @Test
-    fun `upsertSnapshot is deterministic for repeated key`() {
-        val config = postgresConfigOrNull()
-        assumeTrue(config != null, "Postgres test config is not available")
-
-        val storage = PostgresqlStorage(config!!)
-        val snapshotKey = "item-${UUID.randomUUID()}"
-
-        try {
-            storage.upsertSnapshot(sampleDetail(id = snapshotKey, name = "Version 1"))
-            storage.upsertSnapshot(sampleDetail(id = snapshotKey, name = "Version 2"))
-
-            withPostgresConnection(config) { connection ->
-                val rowCount = connection.prepareStatement(
-                    "SELECT COUNT(*) FROM product_snapshots WHERE snapshot_key = ?"
-                ).use { stmt ->
-                    stmt.setString(1, snapshotKey)
-                    stmt.executeQuery().use { rs ->
-                        rs.next()
-                        rs.getInt(1)
-                    }
-                }
-                assertEquals(1, rowCount)
-
-                val payload = connection.prepareStatement(
-                    "SELECT payload::text FROM product_snapshots WHERE snapshot_key = ?"
-                ).use { stmt ->
-                    stmt.setString(1, snapshotKey)
-                    stmt.executeQuery().use { rs ->
-                        rs.next()
-                        rs.getString(1)
-                    }
-                }
-                assertTrue(payload.contains("Version 2"))
-            }
-        } finally {
-            withPostgresConnection(config) { connection ->
-                connection.prepareStatement(
-                    "DELETE FROM product_snapshots WHERE snapshot_key = ?"
-                ).use { stmt ->
-                    stmt.setString(1, snapshotKey)
-                    stmt.executeUpdate()
-                }
-            }
             storage.close()
         }
     }
@@ -399,13 +344,6 @@ class PostgresqlStorageContractTest {
         return java.lang.Math.abs(UUID.randomUUID().mostSignificantBits)
     }
 
-    private fun sampleDetail(id: String, name: String): SingleProductPayload {
-        return baseDetail().copy(
-            id = id,
-            name = name
-        )
-    }
-
     private fun sampleProduct(
         productId: Long,
         name: String?,
@@ -423,18 +361,6 @@ class PostgresqlStorageContractTest {
             canonicalUrl = "/products/$productId",
             remoteLastUpdateAt = remoteLastUpdateAt
         )
-    }
-
-    private fun baseDetail(): SingleProductPayload {
-        val rawJson = readResourceText("/single_product_1564405684712095895.json")
-        return json.decodeFromString(rawJson)
-    }
-
-    private fun readResourceText(resourceName: String): String {
-        val url = checkNotNull(this::class.java.getResource(resourceName)) {
-            "Missing test resource: $resourceName"
-        }
-        return url.readText()
     }
 
     private fun postgresConfigOrNull(): DatabaseConfig? {

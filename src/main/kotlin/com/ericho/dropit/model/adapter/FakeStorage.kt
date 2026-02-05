@@ -1,6 +1,5 @@
 package com.ericho.dropit.model.adapter
 
-import com.ericho.dropit.model.SingleProductPayload
 import com.ericho.dropit.model.entity.DepartmentEntity
 import com.ericho.dropit.model.entity.JobEntity
 import com.ericho.dropit.model.entity.JobStatus
@@ -13,10 +12,6 @@ class FakeStorage : Storage {
     private val departmentsById: MutableMap<Int, DepartmentEntity> = mutableMapOf()
     private val jobsById: MutableMap<Int, JobEntity> = mutableMapOf()
     private var nextJobId: Int = 1
-
-    override fun upsertSnapshot(detail: SingleProductPayload) {
-        // no-op for fake backend
-    }
 
     override fun findProductById(productId: Long): ProductEntity? {
         return productsById[productId]

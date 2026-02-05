@@ -53,11 +53,6 @@ class DropitFetchService(
                     semaphore.withPermit {
                         try {
                             val detail = repo.getItemDetail(item.id.toLong())
-
-                            if (!options.dryRun) {
-                                storage.upsertSnapshot(detail)
-                            }
-
                             detailCount.incrementAndGet()
                             emit(detail)
 

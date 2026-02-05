@@ -1,12 +1,10 @@
 package com.ericho.dropit.model.adapter
 
-import com.ericho.dropit.model.SingleProductPayload
 import com.ericho.dropit.model.entity.DepartmentEntity
 import com.ericho.dropit.model.entity.JobEntity
 import com.ericho.dropit.model.entity.JobStatus
 import com.ericho.dropit.model.entity.JobType
 import com.ericho.dropit.model.entity.ProductEntity
-import kotlinx.serialization.json.Json
 import org.junit.jupiter.api.Test
 import java.nio.file.Files
 import java.sql.DriverManager
@@ -17,11 +15,6 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class SqliteStorageContractTest {
-    private val json = Json {
-        ignoreUnknownKeys = true
-        isLenient = true
-    }
-
     @Test
     fun `schema exists after startup`() {
         val dbPath = Files.createTempFile("dropit-storage-contract-", ".sqlite")
@@ -30,59 +23,28 @@ class SqliteStorageContractTest {
         try {
             DriverManager.getConnection("jdbc:sqlite:${dbPath}").use { connection ->
                 connection.prepareStatement(
-                    "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'product_snapshots'"
-                ).use { stmt ->
-                    stmt.executeQuery().use { rs ->
-                        assertTrue(rs.next(), "Expected product_snapshots table to exist")
-                    }
-                }
-
-                connection.prepareStatement(
                     "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'products'"
                 ).use { stmt ->
                     stmt.executeQuery().use { rs ->
                         assertTrue(rs.next(), "Expected products table to exist")
                     }
                 }
-            }
-        } finally {
-            storage.close()
-            Files.deleteIfExists(dbPath)
-        }
-    }
 
-    @Test
-    fun `upsertSnapshot is deterministic for repeated key`() {
-        val dbPath = Files.createTempFile("dropit-storage-upsert-", ".sqlite")
-        val storage = SqliteStorage(dbPath.toString())
-        val snapshotKey = "item-1001"
-
-        try {
-            storage.upsertSnapshot(sampleDetail(id = snapshotKey, name = "Version 1"))
-            storage.upsertSnapshot(sampleDetail(id = snapshotKey, name = "Version 2"))
-
-            DriverManager.getConnection("jdbc:sqlite:${dbPath}").use { connection ->
-                val rowCount = connection.prepareStatement(
-                    "SELECT COUNT(*) FROM product_snapshots WHERE snapshot_key = ?"
+                connection.prepareStatement(
+                    "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'departments'"
                 ).use { stmt ->
-                    stmt.setString(1, snapshotKey)
                     stmt.executeQuery().use { rs ->
-                        rs.next()
-                        rs.getInt(1)
+                        assertTrue(rs.next(), "Expected departments table to exist")
                     }
                 }
-                assertEquals(1, rowCount)
 
-                val storedPayload = connection.prepareStatement(
-                    "SELECT payload FROM product_snapshots WHERE snapshot_key = ?"
+                connection.prepareStatement(
+                    "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'jobs'"
                 ).use { stmt ->
-                    stmt.setString(1, snapshotKey)
                     stmt.executeQuery().use { rs ->
-                        rs.next()
-                        rs.getString(1)
+                        assertTrue(rs.next(), "Expected jobs table to exist")
                     }
                 }
-                assertTrue(storedPayload.contains("Version 2"))
             }
         } finally {
             storage.close()
@@ -244,8 +206,8 @@ class SqliteStorageContractTest {
     }
 
     @Test
-    fun `reconciles legacy products table on startup`() {
-        val dbPath = Files.createTempFile("dropit-storage-legacy-", ".sqlite")
+    fun `resets all managed tables when schema is stale`() {
+        val dbPath = Files.createTempFile("dropit-storage-stale-", ".sqlite")
 
         DriverManager.getConnection("jdbc:sqlite:${dbPath}").use { connection ->
             connection.createStatement().use { statement ->
@@ -258,27 +220,60 @@ class SqliteStorageContractTest {
                     )
                     """.trimIndent()
                 )
+
+                statement.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS departments (
+                        id INTEGER NOT NULL PRIMARY KEY,
+                        parent_department_id INTEGER NULL,
+                        name TEXT NOT NULL,
+                        path TEXT NOT NULL,
+                        store_id INTEGER NOT NULL,
+                        count INTEGER NOT NULL,
+                        canonical_url TEXT NOT NULL,
+                        created_at TIMESTAMP NOT NULL
+                    )
+                    """.trimIndent()
+                )
+
+                statement.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS jobs (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        sync_id INTEGER NOT NULL,
+                        job_type TEXT NOT NULL,
+                        status TEXT NOT NULL,
+                        created_at TIMESTAMP NOT NULL,
+                        updated_at TIMESTAMP NOT NULL,
+                        dedupe_key TEXT NOT NULL
+                    )
+                    """.trimIndent()
+                )
+
+                statement.execute(
+                    """
+                    INSERT INTO departments (
+                        id, parent_department_id, name, path, store_id, count, canonical_url, created_at
+                    ) VALUES (1, NULL, 'D', '/d', 7442, 1, '/department/1', CURRENT_TIMESTAMP)
+                    """.trimIndent()
+                )
+
+                statement.execute(
+                    """
+                    INSERT INTO jobs (
+                        sync_id, job_type, status, created_at, updated_at, dedupe_key
+                    ) VALUES (1, 'FETCH_PRODUCT', 'PENDING', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 'dept:1')
+                    """.trimIndent()
+                )
             }
         }
 
         val storage = SqliteStorage(dbPath.toString())
         try {
-            storage.createProductIfNotExist(listOf(5000))
-            storage.updateProduct(
-                productId = 5000,
-                product = sampleProduct(
-                    productId = 5000,
-                    name = "Legacy Migrated",
-                    remoteLastUpdateAt = Instant.parse("2026-03-01T00:00:00Z")
-                )
-            )
-
             DriverManager.getConnection("jdbc:sqlite:${dbPath}").use { connection ->
-                val columns = connection.prepareStatement(
-                    "PRAGMA table_info(products)"
-                ).use { stmt ->
+                val columns = connection.prepareStatement("PRAGMA table_info(products)").use { stmt ->
                     stmt.executeQuery().use { rs ->
-                        buildList {
+                        buildSet {
                             while (rs.next()) {
                                 add(rs.getString("name"))
                             }
@@ -286,9 +281,38 @@ class SqliteStorageContractTest {
                     }
                 }
 
-                assertTrue(columns.contains("name"))
-                assertTrue(columns.contains("remote_last_update_at"))
-                assertTrue(columns.contains("store_id"))
+                assertEquals(
+                    setOf(
+                        "id",
+                        "store_id",
+                        "category",
+                        "department_id",
+                        "unit_price",
+                        "popularity",
+                        "upc",
+                        "name",
+                        "canonical_url",
+                        "remote_last_update_at",
+                        "created_at"
+                    ),
+                    columns
+                )
+
+                val departmentCount = connection.prepareStatement("SELECT COUNT(*) FROM departments").use { stmt ->
+                    stmt.executeQuery().use { rs ->
+                        rs.next()
+                        rs.getInt(1)
+                    }
+                }
+                assertEquals(0, departmentCount)
+
+                val jobCount = connection.prepareStatement("SELECT COUNT(*) FROM jobs").use { stmt ->
+                    stmt.executeQuery().use { rs ->
+                        rs.next()
+                        rs.getInt(1)
+                    }
+                }
+                assertEquals(0, jobCount)
             }
         } finally {
             storage.close()
@@ -395,13 +419,6 @@ class SqliteStorageContractTest {
         }
     }
 
-    private fun sampleDetail(id: String, name: String): SingleProductPayload {
-        return baseDetail().copy(
-            id = id,
-            name = name
-        )
-    }
-
     private fun sampleProduct(
         productId: Long,
         name: String?,
@@ -419,17 +436,5 @@ class SqliteStorageContractTest {
             canonicalUrl = "/products/$productId",
             remoteLastUpdateAt = remoteLastUpdateAt
         )
-    }
-
-    private fun baseDetail(): SingleProductPayload {
-        val rawJson = readResourceText("/single_product_1564405684712095895.json")
-        return json.decodeFromString(rawJson)
-    }
-
-    private fun readResourceText(resourceName: String): String {
-        val url = checkNotNull(this::class.java.getResource(resourceName)) {
-            "Missing test resource: $resourceName"
-        }
-        return url.readText()
     }
 }

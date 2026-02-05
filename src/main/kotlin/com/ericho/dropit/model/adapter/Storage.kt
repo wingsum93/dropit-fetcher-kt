@@ -1,5 +1,4 @@
 package com.ericho.dropit.model.adapter
-import com.ericho.dropit.model.SingleProductPayload
 import com.ericho.dropit.model.entity.DepartmentEntity
 import com.ericho.dropit.model.entity.JobEntity
 import com.ericho.dropit.model.entity.JobStatus
@@ -8,7 +7,6 @@ import com.ericho.dropit.model.entity.ProductEntity
 import java.time.Instant
 
 interface Storage : AutoCloseable {
-    fun upsertSnapshot(detail: SingleProductPayload)
     fun findProductById(productId: Long): ProductEntity?
     fun findProductsNameIsEmpty(limit: Int): List<ProductEntity>
     fun findProductsSince(instant: Instant, limit: Int = 10): List<ProductEntity>

@@ -1,8 +1,6 @@
 package com.ericho.dropit.model.adapter
 
 import com.ericho.dropit.model.DatabaseConfig
-import com.ericho.dropit.model.SingleProductPayload
-import com.ericho.dropit.model.api.SnapshotPayload
 import com.ericho.dropit.model.entity.DepartmentEntity
 import com.ericho.dropit.model.entity.JobEntity
 import com.ericho.dropit.model.entity.JobStatus
@@ -10,10 +8,7 @@ import com.ericho.dropit.model.entity.JobType
 import com.ericho.dropit.model.entity.ProductEntity
 import com.zaxxer.hikari.HikariConfig
 import com.zaxxer.hikari.HikariDataSource
-import kotlinx.serialization.encodeToString
-import kotlinx.serialization.json.Json
 import org.jooq.DSLContext
-import org.jooq.JSONB
 import org.jooq.Record
 import org.jooq.SQLDialect
 import org.jooq.impl.DSL
@@ -22,13 +17,6 @@ import java.sql.Timestamp
 import java.time.Instant
 
 class PostgresqlStorage(private val config: DatabaseConfig) : Storage {
-    private val json = Json { encodeDefaults = true }
-
-    private val snapshotsTable = DSL.table("product_snapshots")
-    private val snapshotKeyField = DSL.field("snapshot_key", String::class.java)
-    private val snapshotPayloadField = DSL.field("payload", SQLDataType.JSONB)
-    private val snapshotCreatedAtField = DSL.field("created_at", Timestamp::class.java)
-
     private val productsTable = DSL.table("products")
     private val productIdField = DSL.field("id", Long::class.java)
     private val productStoreIdField = DSL.field("store_id", Int::class.java)
@@ -61,6 +49,43 @@ class PostgresqlStorage(private val config: DatabaseConfig) : Storage {
     private val jobUpdatedAtField = DSL.field("updated_at", Timestamp::class.java)
     private val jobDedupeKeyField = DSL.field("dedupe_key", String::class.java)
 
+    private val managedTables = listOf("products", "departments", "jobs")
+
+    private val expectedColumnsByTable: Map<String, Set<String>> = mapOf(
+        "products" to setOf(
+            "id",
+            "store_id",
+            "category",
+            "department_id",
+            "unit_price",
+            "popularity",
+            "upc",
+            "name",
+            "canonical_url",
+            "remote_last_update_at",
+            "created_at"
+        ),
+        "departments" to setOf(
+            "id",
+            "parent_department_id",
+            "name",
+            "path",
+            "store_id",
+            "count",
+            "canonical_url",
+            "created_at"
+        ),
+        "jobs" to setOf(
+            "id",
+            "sync_id",
+            "job_type",
+            "status",
+            "created_at",
+            "updated_at",
+            "dedupe_key"
+        )
+    )
+
     private val dataSource: HikariDataSource = HikariDataSource(
         HikariConfig().apply {
             jdbcUrl = "jdbc:postgresql://${config.host}:${config.port}/${config.database}"
@@ -79,26 +104,15 @@ class PostgresqlStorage(private val config: DatabaseConfig) : Storage {
         try {
             dataSource.connection.use { connection ->
                 val ctx = DSL.using(connection, SQLDialect.POSTGRES)
-                ensureSnapshotsSchema(ctx)
+                resetAllManagedTablesIfSchemaStale(ctx)
                 ensureProductsSchema(ctx)
-                reconcileProductsSchema(ctx)
                 ensureDepartmentsSchema(ctx)
-                reconcileDepartmentsSchema(ctx)
                 ensureJobsSchema(ctx)
-                reconcileJobsSchema(ctx)
                 ensureJobsTrigger(ctx)
             }
         } catch (exception: Exception) {
             fail("initSchema", "n/a", exception)
         }
-    }
-
-    override fun upsertSnapshot(detail: SingleProductPayload) {
-        val snapshot = SnapshotPayload(
-            key = detail.id,
-            json = json.encodeToString(detail)
-        )
-        writeSnapshot(snapshot)
     }
 
     override fun findProductById(productId: Long): ProductEntity? {
@@ -441,42 +455,64 @@ class PostgresqlStorage(private val config: DatabaseConfig) : Storage {
         dataSource.close()
     }
 
-    private fun writeSnapshot(snapshot: SnapshotPayload) {
-        val now = Timestamp.from(Instant.now())
-        try {
-            dataSource.connection.use { connection ->
-                val ctx = DSL.using(connection, SQLDialect.POSTGRES)
-                ctx.insertInto(snapshotsTable)
-                    .columns(snapshotKeyField, snapshotPayloadField, snapshotCreatedAtField)
-                    .values(snapshot.key, JSONB.jsonb(snapshot.json), now)
-                    .onConflict(snapshotKeyField)
-                    .doUpdate()
-                    .set(snapshotPayloadField, JSONB.jsonb(snapshot.json))
-                    .set(snapshotCreatedAtField, now)
-                    .execute()
-            }
-        } catch (exception: Exception) {
-            fail("upsertSnapshot", snapshot.key, exception)
+    private fun resetAllManagedTablesIfSchemaStale(ctx: DSLContext) {
+        if (!isSchemaStale(ctx)) return
+
+        ctx.execute(
+            """
+            DO $$
+            BEGIN
+                IF EXISTS (
+                    SELECT 1
+                    FROM information_schema.tables
+                    WHERE table_schema = 'public'
+                      AND table_name = 'jobs'
+                ) THEN
+                    DROP TRIGGER IF EXISTS trg_jobs_updated_at ON jobs;
+                END IF;
+            END $$;
+            """.trimIndent()
+        )
+        ctx.execute("DROP FUNCTION IF EXISTS set_jobs_updated_at()")
+        ctx.execute("DROP TABLE IF EXISTS jobs CASCADE")
+        ctx.execute("DROP TABLE IF EXISTS departments CASCADE")
+        ctx.execute("DROP TABLE IF EXISTS products CASCADE")
+    }
+
+    private fun isSchemaStale(ctx: DSLContext): Boolean {
+        val existingTableCount = managedTables.count { tableExists(ctx, it) }
+        if (existingTableCount == 0) return false
+        if (existingTableCount != managedTables.size) return true
+
+        return managedTables.any { tableName ->
+            currentColumns(ctx, tableName) != expectedColumnsByTable.getValue(tableName)
         }
     }
 
-    private fun ensureSnapshotsSchema(ctx: DSLContext) {
-        val id = DSL.field("id", SQLDataType.BIGINT.identity(true).nullable(false))
-        val snapshotKey = DSL.field("snapshot_key", SQLDataType.VARCHAR(255).nullable(false))
-        val payload = DSL.field("payload", SQLDataType.JSONB.nullable(false))
-        val createdAt = DSL.field("created_at", SQLDataType.TIMESTAMPWITHTIMEZONE.nullable(false))
+    private fun tableExists(ctx: DSLContext, tableName: String): Boolean {
+        val count = ctx.fetchOne(
+            """
+            SELECT COUNT(*)
+            FROM information_schema.tables
+            WHERE table_schema = 'public'
+              AND table_name = ?
+            """.trimIndent(),
+            tableName
+        )?.get(0, Int::class.java) ?: 0
+        return count > 0
+    }
 
-        ctx.createTableIfNotExists(snapshotsTable)
-            .column(id)
-            .column(snapshotKey)
-            .column(payload)
-            .column(createdAt)
-            .constraints(DSL.primaryKey(id))
-            .execute()
-
-        ctx.createUniqueIndexIfNotExists("ux_product_snapshots_snapshot_key")
-            .on(snapshotsTable, snapshotKey)
-            .execute()
+    private fun currentColumns(ctx: DSLContext, tableName: String): Set<String> {
+        return ctx.fetch(
+            """
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_schema = 'public'
+              AND table_name = ?
+            """.trimIndent(),
+            tableName
+        ).mapNotNull { it.get("column_name", String::class.java)?.lowercase() }
+            .toSet()
     }
 
     private fun ensureProductsSchema(ctx: DSLContext) {
@@ -506,75 +542,6 @@ class PostgresqlStorage(private val config: DatabaseConfig) : Storage {
             .column(createdAt)
             .constraints(DSL.primaryKey(id))
             .execute()
-    }
-
-    private fun reconcileProductsSchema(ctx: DSLContext) {
-        if (hasColumn(ctx, "products", "product_id")) {
-            migrateLegacyProductsTable(ctx)
-            return
-        }
-
-        ctx.execute("ALTER TABLE products ADD COLUMN IF NOT EXISTS store_id INTEGER")
-        ctx.execute("ALTER TABLE products ADD COLUMN IF NOT EXISTS category INTEGER")
-        ctx.execute("ALTER TABLE products ADD COLUMN IF NOT EXISTS department_id INTEGER")
-        ctx.execute("ALTER TABLE products ADD COLUMN IF NOT EXISTS unit_price DOUBLE PRECISION")
-        ctx.execute("ALTER TABLE products ADD COLUMN IF NOT EXISTS popularity INTEGER")
-        ctx.execute("ALTER TABLE products ADD COLUMN IF NOT EXISTS upc TEXT")
-        ctx.execute("ALTER TABLE products ADD COLUMN IF NOT EXISTS name TEXT")
-        ctx.execute("ALTER TABLE products ADD COLUMN IF NOT EXISTS canonical_url TEXT")
-        ctx.execute("ALTER TABLE products ADD COLUMN IF NOT EXISTS remote_last_update_at TIMESTAMPTZ")
-        ctx.execute("ALTER TABLE products ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()")
-
-        ctx.createIndexIfNotExists("idx_products_remote_last_update_at")
-            .on(productsTable, productRemoteLastUpdateAtField)
-            .execute()
-    }
-
-    private fun migrateLegacyProductsTable(ctx: DSLContext) {
-        ctx.execute(
-            """
-            CREATE TABLE IF NOT EXISTS products_new (
-                id BIGINT PRIMARY KEY,
-                store_id INTEGER NULL,
-                category INTEGER NULL,
-                department_id INTEGER NULL,
-                unit_price DOUBLE PRECISION NULL,
-                popularity INTEGER NULL,
-                upc TEXT NULL,
-                name TEXT NULL,
-                canonical_url TEXT NULL,
-                remote_last_update_at TIMESTAMPTZ NULL,
-                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-            )
-            """.trimIndent()
-        )
-
-        ctx.execute(
-            """
-            INSERT INTO products_new (
-                id, store_id, category, department_id, unit_price, popularity, upc, name,
-                canonical_url, remote_last_update_at, created_at
-            )
-            SELECT
-                CAST(product_id AS BIGINT),
-                store_id,
-                category,
-                department_id,
-                unit_price,
-                popularity,
-                upc,
-                name,
-                canonical_url,
-                remote_last_update_at,
-                COALESCE(created_at, NOW())
-            FROM products
-            WHERE product_id IS NOT NULL
-            ON CONFLICT (id) DO NOTHING
-            """.trimIndent()
-        )
-
-        ctx.execute("DROP TABLE products")
-        ctx.execute("ALTER TABLE products_new RENAME TO products")
 
         ctx.createIndexIfNotExists("idx_products_remote_last_update_at")
             .on(productsTable, productRemoteLastUpdateAtField)
@@ -604,61 +571,6 @@ class PostgresqlStorage(private val config: DatabaseConfig) : Storage {
             .execute()
     }
 
-    private fun reconcileDepartmentsSchema(ctx: DSLContext) {
-        if (hasColumn(ctx, "departments", "department_id")) {
-            migrateLegacyDepartmentsTable(ctx)
-            return
-        }
-
-        ctx.execute("ALTER TABLE departments ADD COLUMN IF NOT EXISTS parent_department_id INTEGER")
-        ctx.execute("ALTER TABLE departments ADD COLUMN IF NOT EXISTS name TEXT NOT NULL DEFAULT ''")
-        ctx.execute("ALTER TABLE departments ADD COLUMN IF NOT EXISTS path TEXT NOT NULL DEFAULT ''")
-        ctx.execute("ALTER TABLE departments ADD COLUMN IF NOT EXISTS store_id INTEGER NOT NULL DEFAULT 0")
-        ctx.execute("ALTER TABLE departments ADD COLUMN IF NOT EXISTS count INTEGER NOT NULL DEFAULT 0")
-        ctx.execute("ALTER TABLE departments ADD COLUMN IF NOT EXISTS canonical_url TEXT NOT NULL DEFAULT ''")
-        ctx.execute("ALTER TABLE departments ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()")
-    }
-
-    private fun migrateLegacyDepartmentsTable(ctx: DSLContext) {
-        ctx.execute(
-            """
-            CREATE TABLE IF NOT EXISTS departments_new (
-                id INTEGER PRIMARY KEY,
-                parent_department_id INTEGER NULL,
-                name TEXT NOT NULL,
-                path TEXT NOT NULL,
-                store_id INTEGER NOT NULL,
-                count INTEGER NOT NULL,
-                canonical_url TEXT NOT NULL,
-                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-            )
-            """.trimIndent()
-        )
-
-        ctx.execute(
-            """
-            INSERT INTO departments_new (
-                id, parent_department_id, name, path, store_id, count, canonical_url, created_at
-            )
-            SELECT
-                CAST(department_id AS INTEGER),
-                parent_department_id,
-                COALESCE(name, ''),
-                COALESCE(path, ''),
-                COALESCE(store_id, 0),
-                COALESCE(count, 0),
-                COALESCE(canonical_url, ''),
-                COALESCE(created_at, NOW())
-            FROM departments
-            WHERE department_id IS NOT NULL
-            ON CONFLICT (id) DO NOTHING
-            """.trimIndent()
-        )
-
-        ctx.execute("DROP TABLE departments")
-        ctx.execute("ALTER TABLE departments_new RENAME TO departments")
-    }
-
     private fun ensureJobsSchema(ctx: DSLContext) {
         val id = DSL.field("id", SQLDataType.INTEGER.identity(true).nullable(false))
         val syncId = DSL.field("sync_id", SQLDataType.INTEGER.nullable(false))
@@ -678,17 +590,6 @@ class PostgresqlStorage(private val config: DatabaseConfig) : Storage {
             .column(dedupeKey)
             .constraints(DSL.primaryKey(id))
             .execute()
-    }
-
-    private fun reconcileJobsSchema(ctx: DSLContext) {
-        ctx.execute("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS sync_id INTEGER NOT NULL DEFAULT 0")
-        ctx.execute("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS job_type TEXT NOT NULL DEFAULT 'FETCH_PRODUCT'")
-        ctx.execute("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'PENDING'")
-        ctx.execute("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()")
-        ctx.execute("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()")
-        ctx.execute("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS dedupe_key VARCHAR(40) NOT NULL DEFAULT ''")
-
-        ctx.execute("UPDATE jobs SET status = 'IN_PROGRESS' WHERE status = 'INPROGRESS'")
 
         ctx.createUniqueIndexIfNotExists("ux_jobs_sync_id_dedupe_key")
             .on(jobsTable, jobSyncIdField, jobDedupeKeyField)
@@ -735,21 +636,6 @@ class PostgresqlStorage(private val config: DatabaseConfig) : Storage {
         )
     }
 
-    private fun hasColumn(ctx: DSLContext, tableName: String, columnName: String): Boolean {
-        val count = ctx.fetchOne(
-            """
-            SELECT COUNT(*)
-            FROM information_schema.columns
-            WHERE table_schema = 'public'
-              AND table_name = ?
-              AND column_name = ?
-            """.trimIndent(),
-            tableName,
-            columnName
-        )?.get(0, Int::class.java) ?: 0
-        return count > 0
-    }
-
     private fun mapProduct(record: Record): ProductEntity {
         val id = record.get("id", Number::class.java)?.toLong()
             ?: throw IllegalStateException("id is null")
@@ -786,14 +672,11 @@ class PostgresqlStorage(private val config: DatabaseConfig) : Storage {
     }
 
     private fun mapJob(record: Record): JobEntity {
-        val rawStatus = (record.get(jobStatusField) ?: JobStatus.PENDING.name)
-            .replace("INPROGRESS", "IN_PROGRESS")
-
         return JobEntity(
             id = record.get("id", Number::class.java)?.toInt(),
             syncId = record.get(jobSyncIdField) ?: 0,
             jobType = JobType.valueOf(record.get(jobTypeField) ?: JobType.FETCH_PRODUCT.name),
-            status = JobStatus.valueOf(rawStatus),
+            status = JobStatus.valueOf(record.get(jobStatusField) ?: JobStatus.PENDING.name),
             dedupeKey = record.get(jobDedupeKeyField) ?: "",
             createdAt = record.get(jobCreatedAtField)?.toInstant() ?: Instant.EPOCH,
             updatedAt = record.get(jobUpdatedAtField)?.toInstant() ?: Instant.EPOCH

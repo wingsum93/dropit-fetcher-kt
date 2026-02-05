@@ -1,7 +1,5 @@
 package com.ericho.dropit.model.adapter
 
-import com.ericho.dropit.model.SingleProductPayload
-import com.ericho.dropit.model.api.SnapshotPayload
 import com.ericho.dropit.model.entity.DepartmentEntity
 import com.ericho.dropit.model.entity.JobEntity
 import com.ericho.dropit.model.entity.JobStatus
@@ -9,8 +7,6 @@ import com.ericho.dropit.model.entity.JobType
 import com.ericho.dropit.model.entity.ProductEntity
 import com.zaxxer.hikari.HikariConfig
 import com.zaxxer.hikari.HikariDataSource
-import kotlinx.serialization.encodeToString
-import kotlinx.serialization.json.Json
 import org.jooq.DSLContext
 import org.jooq.Record
 import org.jooq.SQLDialect
@@ -20,13 +16,6 @@ import java.sql.Timestamp
 import java.time.Instant
 
 class SqliteStorage(private val dbPath: String) : Storage {
-    private val json = Json { encodeDefaults = true }
-
-    private val snapshotsTable = DSL.table("product_snapshots")
-    private val snapshotKeyField = DSL.field("snapshot_key", String::class.java)
-    private val snapshotPayloadField = DSL.field("payload", String::class.java)
-    private val snapshotCreatedAtField = DSL.field("created_at", Timestamp::class.java)
-
     private val productsTable = DSL.table("products")
     private val productIdField = DSL.field("id", Long::class.java)
     private val productStoreIdField = DSL.field("store_id", Int::class.java)
@@ -59,6 +48,43 @@ class SqliteStorage(private val dbPath: String) : Storage {
     private val jobUpdatedAtField = DSL.field("updated_at", Timestamp::class.java)
     private val jobDedupeKeyField = DSL.field("dedupe_key", String::class.java)
 
+    private val managedTables = listOf("products", "departments", "jobs")
+
+    private val expectedColumnsByTable: Map<String, Set<String>> = mapOf(
+        "products" to setOf(
+            "id",
+            "store_id",
+            "category",
+            "department_id",
+            "unit_price",
+            "popularity",
+            "upc",
+            "name",
+            "canonical_url",
+            "remote_last_update_at",
+            "created_at"
+        ),
+        "departments" to setOf(
+            "id",
+            "parent_department_id",
+            "name",
+            "path",
+            "store_id",
+            "count",
+            "canonical_url",
+            "created_at"
+        ),
+        "jobs" to setOf(
+            "id",
+            "sync_id",
+            "job_type",
+            "status",
+            "created_at",
+            "updated_at",
+            "dedupe_key"
+        )
+    )
+
     private val dataSource: HikariDataSource = HikariDataSource(
         HikariConfig().apply {
             jdbcUrl = "jdbc:sqlite:$dbPath"
@@ -75,13 +101,10 @@ class SqliteStorage(private val dbPath: String) : Storage {
         try {
             dataSource.connection.use { connection ->
                 val ctx = DSL.using(connection, SQLDialect.SQLITE)
-                ensureSnapshotsSchema(ctx)
+                resetAllManagedTablesIfSchemaStale(ctx)
                 ensureProductsSchema(ctx)
-                reconcileProductsSchema(ctx)
                 ensureDepartmentsSchema(ctx)
-                reconcileDepartmentsSchema(ctx)
                 ensureJobsSchema(ctx)
-                reconcileJobsSchema(ctx)
                 ensureJobsTrigger(ctx)
             }
         } catch (exception: Exception) {
@@ -91,14 +114,6 @@ class SqliteStorage(private val dbPath: String) : Storage {
                 exception = exception
             )
         }
-    }
-
-    override fun upsertSnapshot(detail: SingleProductPayload) {
-        val snapshot = SnapshotPayload(
-            key = detail.id,
-            json = json.encodeToString(detail)
-        )
-        writeSnapshot(snapshot)
     }
 
     override fun findProductById(productId: Long): ProductEntity? {
@@ -433,42 +448,37 @@ class SqliteStorage(private val dbPath: String) : Storage {
         dataSource.close()
     }
 
-    private fun writeSnapshot(snapshot: SnapshotPayload) {
-        val now = Timestamp.from(Instant.now())
-        try {
-            dataSource.connection.use { connection ->
-                val ctx = DSL.using(connection, SQLDialect.SQLITE)
-                ctx.insertInto(snapshotsTable)
-                    .columns(snapshotKeyField, snapshotPayloadField, snapshotCreatedAtField)
-                    .values(snapshot.key, snapshot.json, now)
-                    .onConflict(snapshotKeyField)
-                    .doUpdate()
-                    .set(snapshotPayloadField, snapshot.json)
-                    .set(snapshotCreatedAtField, now)
-                    .execute()
-            }
-        } catch (exception: Exception) {
-            fail("upsertSnapshot", snapshot.key, exception)
+    private fun resetAllManagedTablesIfSchemaStale(ctx: DSLContext) {
+        if (!isSchemaStale(ctx)) return
+
+        ctx.execute("DROP TRIGGER IF EXISTS trg_jobs_updated_at")
+        ctx.execute("DROP TABLE IF EXISTS jobs")
+        ctx.execute("DROP TABLE IF EXISTS departments")
+        ctx.execute("DROP TABLE IF EXISTS products")
+    }
+
+    private fun isSchemaStale(ctx: DSLContext): Boolean {
+        val existingTableCount = managedTables.count { tableExists(ctx, it) }
+        if (existingTableCount == 0) return false
+        if (existingTableCount != managedTables.size) return true
+
+        return managedTables.any { tableName ->
+            currentColumns(ctx, tableName) != expectedColumnsByTable.getValue(tableName)
         }
     }
 
-    private fun ensureSnapshotsSchema(ctx: DSLContext) {
-        val id = DSL.field("id", SQLDataType.INTEGER.identity(true).nullable(false))
-        val snapshotKey = DSL.field("snapshot_key", SQLDataType.VARCHAR(255).nullable(false))
-        val payload = DSL.field("payload", SQLDataType.CLOB.nullable(false))
-        val createdAt = DSL.field("created_at", SQLDataType.TIMESTAMP.nullable(false))
+    private fun tableExists(ctx: DSLContext, tableName: String): Boolean {
+        val count = ctx.fetchOne(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?",
+            tableName
+        )?.get(0, Int::class.java) ?: 0
+        return count > 0
+    }
 
-        ctx.createTableIfNotExists(snapshotsTable)
-            .column(id)
-            .column(snapshotKey)
-            .column(payload)
-            .column(createdAt)
-            .constraints(DSL.primaryKey(id))
-            .execute()
-
-        ctx.createUniqueIndexIfNotExists("ux_product_snapshots_snapshot_key")
-            .on(snapshotsTable, snapshotKey)
-            .execute()
+    private fun currentColumns(ctx: DSLContext, tableName: String): Set<String> {
+        return ctx.fetch("PRAGMA table_info($tableName)")
+            .mapNotNull { it.get("name", String::class.java)?.lowercase() }
+            .toSet()
     }
 
     private fun ensureProductsSchema(ctx: DSLContext) {
@@ -498,89 +508,6 @@ class SqliteStorage(private val dbPath: String) : Storage {
             .column(createdAt)
             .constraints(DSL.primaryKey(id))
             .execute()
-    }
-
-    private fun reconcileProductsSchema(ctx: DSLContext) {
-        val existingColumns = ctx.fetch("PRAGMA table_info(products)")
-            .mapNotNull { it.get("name", String::class.java)?.lowercase() }
-            .toSet()
-
-        if (existingColumns.contains("product_id")) {
-            migrateLegacyProductsTable(ctx, existingColumns)
-            return
-        }
-
-        addColumnIfMissing(ctx, "products", existingColumns, "store_id", "INTEGER")
-        addColumnIfMissing(ctx, "products", existingColumns, "category", "INTEGER")
-        addColumnIfMissing(ctx, "products", existingColumns, "department_id", "INTEGER")
-        addColumnIfMissing(ctx, "products", existingColumns, "unit_price", "DOUBLE")
-        addColumnIfMissing(ctx, "products", existingColumns, "popularity", "INTEGER")
-        addColumnIfMissing(ctx, "products", existingColumns, "upc", "TEXT")
-        addColumnIfMissing(ctx, "products", existingColumns, "name", "TEXT")
-        addColumnIfMissing(ctx, "products", existingColumns, "canonical_url", "TEXT")
-        addColumnIfMissing(ctx, "products", existingColumns, "remote_last_update_at", "TIMESTAMP")
-        addColumnIfMissing(ctx, "products", existingColumns, "created_at", "TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP")
-
-        ctx.createIndexIfNotExists("idx_products_remote_last_update_at")
-            .on(productsTable, productRemoteLastUpdateAtField)
-            .execute()
-    }
-
-    private fun migrateLegacyProductsTable(ctx: DSLContext, existingColumns: Set<String>) {
-        ctx.execute(
-            """
-            CREATE TABLE IF NOT EXISTS products_new (
-                id INTEGER NOT NULL PRIMARY KEY,
-                store_id INTEGER NULL,
-                category INTEGER NULL,
-                department_id INTEGER NULL,
-                unit_price DOUBLE NULL,
-                popularity INTEGER NULL,
-                upc TEXT NULL,
-                name TEXT NULL,
-                canonical_url TEXT NULL,
-                remote_last_update_at TIMESTAMP NULL,
-                created_at TIMESTAMP NOT NULL
-            )
-            """.trimIndent()
-        )
-
-        val selectStoreId = columnOrDefault(existingColumns, "store_id", "NULL")
-        val selectCategory = columnOrDefault(existingColumns, "category", "NULL")
-        val selectDepartmentId = columnOrDefault(existingColumns, "department_id", "NULL")
-        val selectUnitPrice = columnOrDefault(existingColumns, "unit_price", "NULL")
-        val selectPopularity = columnOrDefault(existingColumns, "popularity", "NULL")
-        val selectUpc = columnOrDefault(existingColumns, "upc", "NULL")
-        val selectName = columnOrDefault(existingColumns, "name", "NULL")
-        val selectCanonicalUrl = columnOrDefault(existingColumns, "canonical_url", "NULL")
-        val selectRemoteLastUpdateAt = columnOrDefault(existingColumns, "remote_last_update_at", "NULL")
-        val selectCreatedAt = columnOrDefault(existingColumns, "created_at", "CURRENT_TIMESTAMP")
-
-        ctx.execute(
-            """
-            INSERT OR IGNORE INTO products_new (
-                id, store_id, category, department_id, unit_price, popularity, upc, name,
-                canonical_url, remote_last_update_at, created_at
-            )
-            SELECT
-                CAST(product_id AS INTEGER),
-                $selectStoreId,
-                $selectCategory,
-                $selectDepartmentId,
-                $selectUnitPrice,
-                $selectPopularity,
-                $selectUpc,
-                $selectName,
-                $selectCanonicalUrl,
-                $selectRemoteLastUpdateAt,
-                $selectCreatedAt
-            FROM products
-            WHERE product_id IS NOT NULL
-            """.trimIndent()
-        )
-
-        ctx.execute("DROP TABLE products")
-        ctx.execute("ALTER TABLE products_new RENAME TO products")
 
         ctx.createIndexIfNotExists("idx_products_remote_last_update_at")
             .on(productsTable, productRemoteLastUpdateAtField)
@@ -610,72 +537,6 @@ class SqliteStorage(private val dbPath: String) : Storage {
             .execute()
     }
 
-    private fun reconcileDepartmentsSchema(ctx: DSLContext) {
-        val existingColumns = ctx.fetch("PRAGMA table_info(departments)")
-            .mapNotNull { it.get("name", String::class.java)?.lowercase() }
-            .toSet()
-
-        if (existingColumns.contains("department_id")) {
-            migrateLegacyDepartmentsTable(ctx, existingColumns)
-            return
-        }
-
-        addColumnIfMissing(ctx, "departments", existingColumns, "parent_department_id", "INTEGER")
-        addColumnIfMissing(ctx, "departments", existingColumns, "name", "TEXT NOT NULL DEFAULT ''")
-        addColumnIfMissing(ctx, "departments", existingColumns, "path", "TEXT NOT NULL DEFAULT ''")
-        addColumnIfMissing(ctx, "departments", existingColumns, "store_id", "INTEGER NOT NULL DEFAULT 0")
-        addColumnIfMissing(ctx, "departments", existingColumns, "count", "INTEGER NOT NULL DEFAULT 0")
-        addColumnIfMissing(ctx, "departments", existingColumns, "canonical_url", "TEXT NOT NULL DEFAULT ''")
-        addColumnIfMissing(ctx, "departments", existingColumns, "created_at", "TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP")
-    }
-
-    private fun migrateLegacyDepartmentsTable(ctx: DSLContext, existingColumns: Set<String>) {
-        ctx.execute(
-            """
-            CREATE TABLE IF NOT EXISTS departments_new (
-                id INTEGER NOT NULL PRIMARY KEY,
-                parent_department_id INTEGER NULL,
-                name TEXT NOT NULL,
-                path TEXT NOT NULL,
-                store_id INTEGER NOT NULL,
-                count INTEGER NOT NULL,
-                canonical_url TEXT NOT NULL,
-                created_at TIMESTAMP NOT NULL
-            )
-            """.trimIndent()
-        )
-
-        val selectParentId = columnOrDefault(existingColumns, "parent_department_id", "NULL")
-        val selectName = "COALESCE(${columnOrDefault(existingColumns, "name", "NULL")}, '')"
-        val selectPath = "COALESCE(${columnOrDefault(existingColumns, "path", "NULL")}, '')"
-        val selectStoreId = "COALESCE(${columnOrDefault(existingColumns, "store_id", "NULL")}, 0)"
-        val selectCount = "COALESCE(${columnOrDefault(existingColumns, "count", "NULL")}, 0)"
-        val selectCanonicalUrl = "COALESCE(${columnOrDefault(existingColumns, "canonical_url", "NULL")}, '')"
-        val selectCreatedAt = columnOrDefault(existingColumns, "created_at", "CURRENT_TIMESTAMP")
-
-        ctx.execute(
-            """
-            INSERT OR IGNORE INTO departments_new (
-                id, parent_department_id, name, path, store_id, count, canonical_url, created_at
-            )
-            SELECT
-                CAST(department_id AS INTEGER),
-                $selectParentId,
-                $selectName,
-                $selectPath,
-                $selectStoreId,
-                $selectCount,
-                $selectCanonicalUrl,
-                $selectCreatedAt
-            FROM departments
-            WHERE department_id IS NOT NULL
-            """.trimIndent()
-        )
-
-        ctx.execute("DROP TABLE departments")
-        ctx.execute("ALTER TABLE departments_new RENAME TO departments")
-    }
-
     private fun ensureJobsSchema(ctx: DSLContext) {
         val id = DSL.field("id", SQLDataType.INTEGER.identity(true).nullable(false))
         val syncId = DSL.field("sync_id", SQLDataType.INTEGER.nullable(false))
@@ -695,36 +556,6 @@ class SqliteStorage(private val dbPath: String) : Storage {
             .column(dedupeKey)
             .constraints(DSL.primaryKey(id))
             .execute()
-
-        addColumnIfMissing(
-            ctx,
-            "jobs",
-            ctx.fetch("PRAGMA table_info(jobs)").mapNotNull { it.get("name", String::class.java)?.lowercase() }.toSet(),
-            "created_at",
-            "TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP"
-        )
-        addColumnIfMissing(
-            ctx,
-            "jobs",
-            ctx.fetch("PRAGMA table_info(jobs)").mapNotNull { it.get("name", String::class.java)?.lowercase() }.toSet(),
-            "updated_at",
-            "TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP"
-        )
-    }
-
-    private fun reconcileJobsSchema(ctx: DSLContext) {
-        val existingColumns = ctx.fetch("PRAGMA table_info(jobs)")
-            .mapNotNull { it.get("name", String::class.java)?.lowercase() }
-            .toSet()
-
-        addColumnIfMissing(ctx, "jobs", existingColumns, "sync_id", "INTEGER NOT NULL DEFAULT 0")
-        addColumnIfMissing(ctx, "jobs", existingColumns, "job_type", "TEXT NOT NULL DEFAULT 'FETCH_PRODUCT'")
-        addColumnIfMissing(ctx, "jobs", existingColumns, "status", "TEXT NOT NULL DEFAULT 'PENDING'")
-        addColumnIfMissing(ctx, "jobs", existingColumns, "created_at", "TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP")
-        addColumnIfMissing(ctx, "jobs", existingColumns, "updated_at", "TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP")
-        addColumnIfMissing(ctx, "jobs", existingColumns, "dedupe_key", "TEXT NOT NULL DEFAULT ''")
-
-        ctx.execute("UPDATE jobs SET status = 'IN_PROGRESS' WHERE status = 'INPROGRESS'")
 
         ctx.createUniqueIndexIfNotExists("ux_jobs_sync_id_dedupe_key")
             .on(jobsTable, jobSyncIdField, jobDedupeKeyField)
@@ -755,22 +586,6 @@ class SqliteStorage(private val dbPath: String) : Storage {
             END;
             """.trimIndent()
         )
-    }
-
-    private fun addColumnIfMissing(
-        ctx: DSLContext,
-        tableName: String,
-        existingColumns: Set<String>,
-        columnName: String,
-        sqlType: String
-    ) {
-        if (!existingColumns.contains(columnName.lowercase())) {
-            ctx.execute("ALTER TABLE $tableName ADD COLUMN $columnName $sqlType")
-        }
-    }
-
-    private fun columnOrDefault(existingColumns: Set<String>, columnName: String, defaultExpr: String): String {
-        return if (existingColumns.contains(columnName.lowercase())) columnName else defaultExpr
     }
 
     private fun mapProduct(record: Record): ProductEntity {
@@ -808,13 +623,11 @@ class SqliteStorage(private val dbPath: String) : Storage {
 
     private fun mapJob(record: Record): JobEntity {
         val id = record.get("id", Number::class.java)?.toInt()
-        val rawStatus = (record.get(jobStatusField) ?: JobStatus.PENDING.name)
-            .replace("INPROGRESS", "IN_PROGRESS")
         return JobEntity(
             id = id,
             syncId = record.get(jobSyncIdField) ?: 0,
             jobType = JobType.valueOf(record.get(jobTypeField) ?: JobType.FETCH_PRODUCT.name),
-            status = JobStatus.valueOf(rawStatus),
+            status = JobStatus.valueOf(record.get(jobStatusField) ?: JobStatus.PENDING.name),
             dedupeKey = record.get(jobDedupeKeyField) ?: "",
             createdAt = record.get(jobCreatedAtField)?.toInstant() ?: Instant.EPOCH,
             updatedAt = record.get(jobUpdatedAtField)?.toInstant() ?: Instant.EPOCH
