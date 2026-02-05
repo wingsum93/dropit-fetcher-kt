@@ -43,6 +43,8 @@ tasks {
 }
 
 dependencies {
+    val jooqVersion = "3.19.15"
+
     // Ktor client (CIO engine)
     implementation("io.ktor:ktor-client-core:2.3.12")
     implementation("io.ktor:ktor-client-cio:2.3.12")
@@ -60,6 +62,8 @@ dependencies {
     implementation("io.github.cdimascio:dotenv-kotlin:6.4.2")
     implementation("org.postgresql:postgresql:42.7.3")
     implementation("org.xerial:sqlite-jdbc:3.46.1.0")
+    implementation("org.jooq:jooq:$jooqVersion")
+    implementation("org.jooq:jooq-kotlin:$jooqVersion")
     testImplementation(kotlin("test"))
 }
 
