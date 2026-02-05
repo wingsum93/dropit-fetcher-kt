@@ -42,10 +42,12 @@ class GroceryRepository {
         }
         install(RateLimit429Plugin) {
             maxRetries = 6
-            baseDelay = 750.milliseconds
-            maxDelay = 30.seconds
-            jitterRatio = 0.2
+            // API rate limit: ~1 request per 3 seconds. Keep retries aligned to that window.
+            baseDelay = 3100.milliseconds
+            maxDelay = 120.seconds
+            jitterRatio = 0.0
             respectRetryAfter = true
+            backoffMultiplier = 1.0
         }
         install(HttpRequestRetry) {
             maxRetries = 3
