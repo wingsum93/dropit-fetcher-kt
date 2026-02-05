@@ -2,6 +2,10 @@ package com.ericho.dropit.model.adapter
 
 import com.ericho.dropit.model.DatabaseConfig
 import com.ericho.dropit.model.SingleProductPayload
+import com.ericho.dropit.model.entity.DepartmentEntity
+import com.ericho.dropit.model.entity.JobEntity
+import com.ericho.dropit.model.entity.JobStatus
+import com.ericho.dropit.model.entity.JobType
 import com.ericho.dropit.model.entity.ProductEntity
 import kotlinx.serialization.json.Json
 import org.junit.jupiter.api.Assumptions.assumeTrue
@@ -125,7 +129,7 @@ class PostgresqlStorageContractTest {
 
             withPostgresConnection(config) { connection ->
                 val count = connection.prepareStatement(
-                    "SELECT COUNT(*) FROM products WHERE product_id = ANY (?)"
+                    "SELECT COUNT(*) FROM products WHERE id = ANY (?)"
                 ).use { stmt ->
                     stmt.setArray(1, connection.createArrayOf("bigint", ids.toTypedArray()))
                     stmt.executeQuery().use { rs ->
@@ -158,7 +162,7 @@ class PostgresqlStorageContractTest {
             storage.updateProduct(ids[3], sampleProduct(ids[3], name = "Orange", remoteLastUpdateAt = t))
 
             val rows = storage.findProductsNameIsEmpty(limit = 2)
-            assertEquals(listOf(ids[0], ids[1]), rows.map { it.productId })
+            assertEquals(listOf(ids[0], ids[1]), rows.map { it.id })
         } finally {
             cleanupProducts(config, ids)
             storage.close()
@@ -183,7 +187,7 @@ class PostgresqlStorageContractTest {
             storage.updateProduct(ids[2], sampleProduct(ids[2], name = "C", remoteLastUpdateAt = t3))
 
             val rows = storage.findProductsSince(t2, limit = 10)
-            assertEquals(listOf(ids[2], ids[1]), rows.map { it.productId })
+            assertEquals(listOf(ids[2], ids[1]), rows.map { it.id })
         } finally {
             cleanupProducts(config, ids)
             storage.close()
@@ -270,6 +274,106 @@ class PostgresqlStorageContractTest {
         }
     }
 
+    @Test
+    fun `department APIs insert and read by id`() {
+        val config = postgresConfigOrNull()
+        assumeTrue(config != null, "Postgres test config is not available")
+
+        val baseId = (uniqueProductId() % 100000).toInt()
+        val storage = PostgresqlStorage(config!!)
+        try {
+            val now = Instant.parse("2026-03-02T00:00:00Z")
+            val d1 = DepartmentEntity(
+                id = baseId,
+                parentDepartmentId = null,
+                name = "Dept A",
+                path = "x/y",
+                storeId = 7442,
+                count = 4,
+                canonicalUrl = "/department/$baseId",
+                createdAt = now
+            )
+            val d2 = d1.copy(id = baseId + 1, name = "Dept B")
+            storage.insertDepartmentEntity(listOf(d1, d1.copy(name = "Skip"), d2))
+
+            assertEquals("Dept A", storage.findDepartmentById(baseId)?.name)
+            assertTrue(storage.findAllDepartments().any { it.id == baseId })
+        } finally {
+            withPostgresConnection(config) { connection ->
+                connection.prepareStatement("DELETE FROM departments WHERE id = ANY (?)").use { stmt ->
+                    stmt.setArray(1, connection.createArrayOf("integer", arrayOf(baseId, baseId + 1)))
+                    stmt.executeUpdate()
+                }
+            }
+            storage.close()
+        }
+    }
+
+    @Test
+    fun `jobs APIs support dedupe and status updates`() {
+        val config = postgresConfigOrNull()
+        assumeTrue(config != null, "Postgres test config is not available")
+
+        val syncId = (uniqueProductId() % 100000).toInt()
+        val storage = PostgresqlStorage(config!!)
+        try {
+            val now = Instant.parse("2026-03-03T00:00:00Z")
+            storage.insertJobsIfNotExist(
+                listOf(
+                    JobEntity(
+                        syncId = syncId,
+                        jobType = JobType.FETCH_PRODUCT,
+                        status = JobStatus.PENDING,
+                        dedupeKey = "product:100",
+                        createdAt = now,
+                        updatedAt = now
+                    ),
+                    JobEntity(
+                        syncId = syncId,
+                        jobType = JobType.FETCH_PRODUCT,
+                        status = JobStatus.PENDING,
+                        dedupeKey = "dept:33",
+                        createdAt = now,
+                        updatedAt = now
+                    )
+                )
+            )
+            storage.insertJobsIfNotExist(
+                listOf(
+                    JobEntity(
+                        syncId = syncId,
+                        jobType = JobType.FETCH_PRODUCT,
+                        status = JobStatus.PENDING,
+                        dedupeKey = "product:100",
+                        createdAt = now,
+                        updatedAt = now
+                    )
+                )
+            )
+
+            val pending = storage.findJobsByType(syncId, JobType.FETCH_PRODUCT, JobStatus.PENDING)
+            assertEquals(2, pending.size)
+            assertTrue((pending[0].id ?: 0) < (pending[1].id ?: 0))
+
+            val firstId = pending.first().id ?: error("missing id")
+            storage.updateJobStatusById(firstId, JobStatus.IN_PROGRESS)
+            assertEquals(1, storage.findJobsByType(syncId, JobType.FETCH_PRODUCT, JobStatus.IN_PROGRESS).size)
+
+            val secondId = pending.last().id ?: error("missing id")
+            storage.updateJobStatusByIds(listOf(firstId, secondId), JobStatus.SUCCESS)
+            assertEquals(2, storage.findJobsByType(syncId, JobType.FETCH_PRODUCT, JobStatus.SUCCESS).size)
+            assertEquals("dept:33", storage.findDepartmentJobsById(syncId, 33).firstOrNull()?.dedupeKey)
+        } finally {
+            withPostgresConnection(config) { connection ->
+                connection.prepareStatement("DELETE FROM jobs WHERE sync_id = ?").use { stmt ->
+                    stmt.setInt(1, syncId)
+                    stmt.executeUpdate()
+                }
+            }
+            storage.close()
+        }
+    }
+
     private fun withPostgresConnection(config: DatabaseConfig, block: (java.sql.Connection) -> Unit) {
         val jdbcUrl = "jdbc:postgresql://${config.host}:${config.port}/${config.database}"
         val props = Properties().apply {
@@ -283,7 +387,7 @@ class PostgresqlStorageContractTest {
         if (productIds.isEmpty()) return
         withPostgresConnection(config) { connection ->
             connection.prepareStatement(
-                "DELETE FROM products WHERE product_id = ANY (?)"
+                "DELETE FROM products WHERE id = ANY (?)"
             ).use { stmt ->
                 stmt.setArray(1, connection.createArrayOf("bigint", productIds.toTypedArray()))
                 stmt.executeUpdate()
@@ -308,7 +412,7 @@ class PostgresqlStorageContractTest {
         remoteLastUpdateAt: Instant
     ): ProductEntity {
         return ProductEntity(
-            productId = productId,
+            id = productId,
             storeId = 7442,
             category = 100,
             departmentId = 200,

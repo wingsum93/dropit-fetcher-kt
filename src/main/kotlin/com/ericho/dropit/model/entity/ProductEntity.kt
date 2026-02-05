@@ -4,8 +4,7 @@ import java.time.Instant
 
 // store in my db
 data class ProductEntity(
-    val id: Long? = null,
-    val productId: Long,
+    val id: Long,
     val storeId: Int? = null,
     val category: Int? = null,
     val departmentId: Int? = null,

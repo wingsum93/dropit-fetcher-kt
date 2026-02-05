@@ -1,6 +1,10 @@
 package com.ericho.dropit.model.adapter
 
 import com.ericho.dropit.model.SingleProductPayload
+import com.ericho.dropit.model.entity.DepartmentEntity
+import com.ericho.dropit.model.entity.JobEntity
+import com.ericho.dropit.model.entity.JobStatus
+import com.ericho.dropit.model.entity.JobType
 import com.ericho.dropit.model.entity.ProductEntity
 import kotlinx.serialization.json.Json
 import org.junit.jupiter.api.Test
@@ -137,7 +141,7 @@ class SqliteStorageContractTest {
             storage.updateProduct(4, sampleProduct(4, name = "Apple", remoteLastUpdateAt = now))
 
             val rows = storage.findProductsNameIsEmpty(limit = 2)
-            assertEquals(listOf(1L, 2L), rows.map { it.productId })
+            assertEquals(listOf(1L, 2L), rows.map { it.id })
         } finally {
             storage.close()
             Files.deleteIfExists(dbPath)
@@ -160,7 +164,7 @@ class SqliteStorageContractTest {
             storage.updateProduct(12, sampleProduct(12, name = "C", remoteLastUpdateAt = t3))
 
             val rows = storage.findProductsSince(t2, limit = 10)
-            assertEquals(listOf(12L, 11L), rows.map { it.productId })
+            assertEquals(listOf(12L, 11L), rows.map { it.id })
         } finally {
             storage.close()
             Files.deleteIfExists(dbPath)
@@ -292,6 +296,105 @@ class SqliteStorageContractTest {
         }
     }
 
+    @Test
+    fun `insertDepartmentEntity inserts missing ids and skips conflicts`() {
+        val dbPath = Files.createTempFile("dropit-storage-department-insert-", ".sqlite")
+        val storage = SqliteStorage(dbPath.toString())
+
+        try {
+            val now = Instant.parse("2026-03-02T00:00:00Z")
+            val d1 = DepartmentEntity(
+                id = 11,
+                parentDepartmentId = null,
+                name = "Fruit",
+                path = "a/b",
+                storeId = 7442,
+                count = 10,
+                canonicalUrl = "/department/11",
+                createdAt = now
+            )
+            val d1Conflict = d1.copy(name = "Should Skip")
+            val d2 = d1.copy(id = 12, name = "Vegetable")
+
+            storage.insertDepartmentEntity(listOf(d1, d1Conflict, d2))
+
+            val all = storage.findAllDepartments()
+            assertEquals(listOf(11, 12), all.map { it.id })
+            assertEquals("Fruit", storage.findDepartmentById(11)?.name)
+        } finally {
+            storage.close()
+            Files.deleteIfExists(dbPath)
+        }
+    }
+
+    @Test
+    fun `jobs APIs respect dedupe and ordering semantics`() {
+        val dbPath = Files.createTempFile("dropit-storage-jobs-", ".sqlite")
+        val storage = SqliteStorage(dbPath.toString())
+
+        try {
+            val now = Instant.parse("2026-03-03T00:00:00Z")
+            storage.insertJobsIfNotExist(
+                listOf(
+                    JobEntity(
+                        syncId = 1,
+                        jobType = JobType.FETCH_PRODUCT,
+                        status = JobStatus.PENDING,
+                        dedupeKey = "product:100",
+                        createdAt = now,
+                        updatedAt = now
+                    ),
+                    JobEntity(
+                        syncId = 1,
+                        jobType = JobType.FETCH_PRODUCT,
+                        status = JobStatus.PENDING,
+                        dedupeKey = "dept:33",
+                        createdAt = now,
+                        updatedAt = now
+                    )
+                )
+            )
+            storage.insertJobsIfNotExist(
+                listOf(
+                    JobEntity(
+                        syncId = 1,
+                        jobType = JobType.FETCH_PRODUCT,
+                        status = JobStatus.PENDING,
+                        dedupeKey = "product:100",
+                        createdAt = now,
+                        updatedAt = now
+                    )
+                )
+            )
+
+            val pending = storage.findJobsByType(JobType.FETCH_PRODUCT, JobStatus.PENDING)
+            assertEquals(2, pending.size)
+            assertTrue((pending[0].id ?: 0) < (pending[1].id ?: 0))
+
+            val deptJob = storage.findDepartmentJobsById(1, 33)
+            assertEquals(1, deptJob.size)
+            assertEquals("dept:33", deptJob[0].dedupeKey)
+
+            val latestByKey = storage.findByDedupeKey(1, "product:100")
+            assertEquals("product:100", latestByKey?.dedupeKey)
+
+            val firstId = pending.first().id ?: error("missing id")
+            storage.updateJobStatusById(firstId, JobStatus.IN_PROGRESS)
+            assertEquals(
+                JobStatus.IN_PROGRESS,
+                storage.findJobsByType(1, JobType.FETCH_PRODUCT, JobStatus.IN_PROGRESS).first().status
+            )
+
+            val secondId = pending.last().id ?: error("missing id")
+            storage.updateJobStatusByIds(listOf(firstId, secondId), JobStatus.SUCCESS)
+            val done = storage.findJobsByType(1, JobType.FETCH_PRODUCT, JobStatus.SUCCESS)
+            assertEquals(2, done.size)
+        } finally {
+            storage.close()
+            Files.deleteIfExists(dbPath)
+        }
+    }
+
     private fun sampleDetail(id: String, name: String): SingleProductPayload {
         return baseDetail().copy(
             id = id,
@@ -305,7 +408,7 @@ class SqliteStorageContractTest {
         remoteLastUpdateAt: Instant
     ): ProductEntity {
         return ProductEntity(
-            productId = productId,
+            id = productId,
             storeId = 7442,
             category = 100,
             departmentId = 200,
