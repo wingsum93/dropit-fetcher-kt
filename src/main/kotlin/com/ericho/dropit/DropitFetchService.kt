@@ -8,26 +8,20 @@ import com.ericho.dropit.model.entity.JobStatus
 import com.ericho.dropit.model.entity.JobType
 import com.ericho.dropit.model.entity.SyncEntity
 import com.ericho.dropit.model.entity.SyncStatus
-import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.flow.asFlow
-import kotlinx.coroutines.flow.buffer
-import kotlinx.coroutines.flow.collect
-import kotlinx.coroutines.flow.flatMapMerge
-import kotlinx.coroutines.flow.flow
-import kotlinx.coroutines.flow.onEach
-import kotlinx.coroutines.sync.Semaphore
-import kotlinx.coroutines.sync.withPermit
+import kotlinx.coroutines.delay
 import java.time.Instant
 import java.util.concurrent.atomic.AtomicInteger
 
-@OptIn(ExperimentalCoroutinesApi::class)
 class DropitFetchService(
     private val repo: GroceryDataSource = GroceryRepository(),
     private val storage: Storage
 ) {
     companion object {
         private const val ALL_DEPARTMENTS_DEDUPE_KEY = "all_departments"
+        private const val TARGET_TIME_MILL = 5_000L
     }
+
+    private var lastApiCallStartMs: Long = 0L
 
     suspend fun run(options: FetchOptions): FetchReport {
         val start = System.currentTimeMillis()
@@ -39,47 +33,38 @@ class DropitFetchService(
 
         println("Starting fetch...")
         println("resume=${options.resume}, since=${options.since}, dryRun=${options.dryRun}")
+        println("HTTP queue mode: manual delay (1 call per 5 seconds)")
+        lastApiCallStartMs = 0L
 
         val sync = prepareSyncSession()
         val syncId = sync.id ?: error("sync id is null")
 
         try {
             val departmentIds = ensureDepartmentJobs(syncId)
-            val semaphore = Semaphore(options.detailConcurrency)
 
-            departmentIds
-                .asFlow()
-                .onEach { deptId ->
-                    deptCount.incrementAndGet()
-                    println("Dept: $deptId")
-                }
-                .flatMapMerge(options.deptConcurrency) { deptId ->
-                    repo.getAllItemsInDepartment(deptId, options)
-                        .asFlow()
-                        .onEach {
-                            println("itemId = ${it.id}")
-                            itemCount.incrementAndGet()
-                        }
-                }
-                .buffer(200)
-                .flatMapMerge(options.detailConcurrency) { item ->
-                    flow {
-                        semaphore.withPermit {
-                            try {
-                                val detail = repo.getItemDetail(item.id.toLong())
-                                detailCount.incrementAndGet()
-                                emit(detail)
-                            } catch (e: Exception) {
-                                failed.incrementAndGet()
-                                System.err.println(
-                                    "event=sync_item_failed itemId=${item.id} " +
-                                        "error=${e::class.simpleName} message=${e.message}"
-                                )
-                            }
-                        }
+            for (deptId in departmentIds) {
+                deptCount.incrementAndGet()
+                println("Dept: $deptId")
+
+                manualDelay(TARGET_TIME_MILL, callName = "getAllItemsInDepartment deptId=$deptId")
+                val items = repo.getAllItemsInDepartment(deptId, options)
+                for (item in items) {
+                    println("itemId = ${item.id}")
+                    itemCount.incrementAndGet()
+
+                    try {
+                        manualDelay(TARGET_TIME_MILL, callName = "getItemDetail itemId=${item.id}")
+                        repo.getItemDetail(item.id.toLong())
+                        detailCount.incrementAndGet()
+                    } catch (e: Exception) {
+                        failed.incrementAndGet()
+                        System.err.println(
+                            "event=sync_item_failed itemId=${item.id} " +
+                                "error=${e::class.simpleName} message=${e.message}"
+                        )
                     }
                 }
-                .collect()
+            }
 
             storage.updateSyncEntity(
                 sync.copy(
@@ -108,6 +93,18 @@ class DropitFetchService(
         )
     }
 
+    private suspend fun manualDelay(targetTimeMill: Long, callName: String) {
+        val now = System.currentTimeMillis()
+        val remaining = (lastApiCallStartMs + targetTimeMill) - now
+        if (remaining > 0) {
+            println("event=manual_delay_wait waitMs=$remaining call=$callName")
+            delay(remaining)
+        }
+
+        lastApiCallStartMs = System.currentTimeMillis()
+        println("event=manual_delay_call_started at=${Instant.ofEpochMilli(lastApiCallStartMs)} call=$callName")
+    }
+
     private fun prepareSyncSession(): SyncEntity {
         val current = storage.findSyncEntityLeft() ?: storage.createSyncEntity()
         return storage.updateSyncEntity(
@@ -125,8 +122,8 @@ class DropitFetchService(
             return departmentIdsFromExistingJobs(syncId)
         }
 
-        val departments = repo.getAllDepartments()
-        val departmentIds = departments.map { it.id.toInt() }.distinct()
+        manualDelay(TARGET_TIME_MILL, callName = "getAllDepartments")
+        val departmentIds = repo.getAllDepartments().map { it.id.toInt() }.distinct()
         val jobs = buildList {
             add(
                 JobEntity(
@@ -154,6 +151,7 @@ class DropitFetchService(
     private fun departmentIdsFromExistingJobs(syncId: Int): List<Int> {
         return JobStatus.entries
             .asSequence()
+            .filter { it == JobStatus.PENDING || it == JobStatus.IN_PROGRESS }
             .flatMap { status ->
                 storage.findJobsByType(syncId, JobType.FETCH_DEPARTMENT_PRODUCTS, status).asSequence()
             }
