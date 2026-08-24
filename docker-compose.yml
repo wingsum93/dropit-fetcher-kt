@@ -18,5 +18,36 @@ services:
       retries: 5
       start_period: 10s
 
+  server:
+    build:
+      context: .
+      args:
+        MODULE: server
+    env_file:
+      - .env
+    environment:
+      POSTGRES_HOST: postgres
+      SERVER_HOST: 0.0.0.0
+    ports:
+      - "${SERVER_PORT:-8080}:${SERVER_PORT:-8080}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  scraper-worker:
+    build:
+      context: .
+      args:
+        MODULE: scraper-worker
+    env_file:
+      - .env
+    environment:
+      POSTGRES_HOST: postgres
+      WORKER_POLL_INTERVAL_MS: ${WORKER_POLL_INTERVAL_MS:-2000}
+      WORKER_BATCH_SIZE: ${WORKER_BATCH_SIZE:-1}
+    depends_on:
+      postgres:
+        condition: service_healthy
+
 volumes:
   postgres_data:
