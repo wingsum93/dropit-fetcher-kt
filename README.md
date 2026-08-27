@@ -21,9 +21,17 @@ POSTGRES_PASSWORD=dropit_password
 SERVER_PORT=8080
 WORKER_POLL_INTERVAL_MS=2000
 WORKER_BATCH_SIZE=1
+WORKER_HEALTH_PORT=8081
+WORKER_INIT_MAX_ATTEMPTS=5
+WORKER_INIT_RETRY_DELAY_MS=3000
+FRESHOP_APP_KEY=lindos
+FRESHOP_LOCALE=false
+FRESHOP_REFERRER=https://www.dropit.bm/
 ```
 
 Postgres configuration is required. The app no longer falls back to SQLite.
+Workers fetch a Freshop session token before polling jobs and report ready on
+`/health` only after that initialization succeeds.
 
 ## API
 

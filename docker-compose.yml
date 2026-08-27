@@ -21,33 +21,49 @@ services:
   server:
     build:
       context: .
-      args:
-        MODULE: server
+      dockerfile: Dockerfile.server
     env_file:
       - .env
     environment:
       POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
       SERVER_HOST: 0.0.0.0
     ports:
       - "${SERVER_PORT:-8080}:${SERVER_PORT:-8080}"
     depends_on:
       postgres:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:$${SERVER_PORT:-8080}/health >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
   scraper-worker:
     build:
       context: .
-      args:
-        MODULE: scraper-worker
+      dockerfile: Dockerfile.worker
     env_file:
       - .env
     environment:
       POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
       WORKER_POLL_INTERVAL_MS: ${WORKER_POLL_INTERVAL_MS:-2000}
       WORKER_BATCH_SIZE: ${WORKER_BATCH_SIZE:-1}
+      WORKER_HEALTH_HOST: 0.0.0.0
+      WORKER_HEALTH_PORT: ${WORKER_HEALTH_PORT:-8081}
     depends_on:
       postgres:
         condition: service_healthy
+      server:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:$${WORKER_HEALTH_PORT:-8081}/health >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
 volumes:
   postgres_data:

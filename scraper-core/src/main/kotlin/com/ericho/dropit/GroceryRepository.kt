@@ -1,14 +1,14 @@
 package com.ericho.dropit
 
 import com.ericho.dropit.model.FetchOptions
+import com.ericho.dropit.session.FreshopTokenProvider
+import com.ericho.dropit.session.StaticFreshopTokenProvider
 import com.ericho.dropit.network.RateLimit429Plugin
 import io.ktor.client.*
 import io.ktor.client.call.*
 import io.ktor.client.engine.cio.*
 import io.ktor.client.plugins.*
 import io.ktor.client.plugins.contentnegotiation.*
-import io.ktor.client.plugins.logging.LogLevel
-import io.ktor.client.plugins.logging.Logging
 import io.ktor.client.request.*
 import io.ktor.client.statement.*
 import io.ktor.http.*
@@ -22,7 +22,9 @@ import com.ericho.dropit.model.SingleProductPayload
 import com.ericho.dropit.model.api.DepartmentDto
 import com.ericho.dropit.model.api.ProductDto
 
-class GroceryRepository : GroceryDataSource {
+class GroceryRepository(
+    private val tokenProvider: FreshopTokenProvider = StaticFreshopTokenProvider(AppSetting.sampleToken)
+) : GroceryDataSource {
     private val URL_PRODUCT = "https://api.freshop.ncrcloud.com/1/products"
     private val URL_PRODUCT_DETAIL = "https://api.freshop.ncrcloud.com/1/products/"
     private val PAGE_SIZE = 96
@@ -54,12 +56,8 @@ class GroceryRepository : GroceryDataSource {
             retryIf { _, response -> response.status.value in setOf(500, 502, 503, 504) }
             exponentialDelay()
         }
-        install(Logging) {
-            level = LogLevel.ALL
-        }
         defaultRequest {
             url("apiBaseUrl")
-            header(HttpHeaders.Authorization, "Bearer abc")
             accept(ContentType.Application.Json)
         }
     }
@@ -71,13 +69,14 @@ class GroceryRepository : GroceryDataSource {
     override suspend fun getAllDepartments(
         storeId: Int,
     ): List<DepartmentDto> {
+        val token = tokenProvider.token()
         return httpClient.get(URL_PRODUCT) {
             url {
                 parameters.append("app_key", AppSetting.appKey)
                 parameters.append("store_id", storeId.toString())
 
                 parameters.append("include_departments", true.toString())
-                parameters.append("token", AppSetting.sampleToken)
+                parameters.append("token", token)
                 parameters.append("render_id", "1769356302366")
             }
         }.body<DepartmentPayload>().departments
@@ -89,6 +88,7 @@ class GroceryRepository : GroceryDataSource {
         pageNo: Int = 0,
         storeId: Int = AppSetting.storeId7442,
     ): ProductPayload {
+        val token = tokenProvider.token()
 
         val fields = listOf(
             "id",
@@ -114,7 +114,7 @@ class GroceryRepository : GroceryDataSource {
                 parameters.append("store_id", storeId.toString())
                 parameters.append("department_id", departmentId.toString())
                 parameters.append("include_departments", true.toString())
-                parameters.append("token", AppSetting.sampleToken)
+                parameters.append("token", token)
                 parameters.append("render_id", "1769356302366")
                 // can add skip param
                 parameters.append("popularity_sort", "asc")
@@ -144,11 +144,13 @@ class GroceryRepository : GroceryDataSource {
     override suspend fun getItemDetail(
         itemId: Long
     ): SingleProductPayload {
+        val token = tokenProvider.token()
         return httpClient.get {
             url {
                 takeFrom(URL_PRODUCT_DETAIL)
                 appendPathSegments(itemId.toString())
                 parameters.append("app_key", AppSetting.appKey)
+                parameters.append("token", token)
             }
         }.body()
     }
