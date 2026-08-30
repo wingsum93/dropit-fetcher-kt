@@ -4,10 +4,9 @@ import com.ericho.dropit.GroceryRepository
 import com.ericho.dropit.model.DatabaseConfig
 import com.ericho.dropit.model.adapter.PostgresqlStorage
 import com.ericho.dropit.scraper.ProductScraper
+import com.ericho.dropit.session.ApiFreshopTokenProvider
 import com.ericho.dropit.session.FreshopSessionClient
 import com.ericho.dropit.session.FreshopSessionConfig
-import com.ericho.dropit.session.FreshopSessionResponse
-import com.ericho.dropit.session.StaticFreshopTokenProvider
 import io.github.cdimascio.dotenv.dotenv
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
@@ -51,30 +50,32 @@ fun main() = runBlocking {
         ?: 3_000L
 
     try {
-        val sessionClient = FreshopSessionClient()
-        val freshopSession = try {
-            fetchFreshopSessionWithRetry(
-                client = sessionClient,
-                config = FreshopSessionConfig.fromEnv(dotenv),
+        val tokenProvider = ApiFreshopTokenProvider(
+            client = FreshopSessionClient(),
+            config = FreshopSessionConfig.fromEnv(dotenv)
+        )
+        try {
+            initializeFreshopTokenWithRetry(
+                tokenProvider = tokenProvider,
                 maxAttempts = initMaxAttempts,
                 retryDelayMs = initRetryDelayMs
             )
-        } finally {
-            sessionClient.close()
-        }
-        val worker = ScraperWorker(
-            storage = storage,
-            scraper = ProductScraper(
-                repo = GroceryRepository(
-                    tokenProvider = StaticFreshopTokenProvider(freshopSession.token)
+            val worker = ScraperWorker(
+                storage = storage,
+                scraper = ProductScraper(
+                    repo = GroceryRepository(
+                        tokenProvider = tokenProvider
+                    ),
+                    storage = storage
                 ),
-                storage = storage
-            ),
-            pollIntervalMs = pollIntervalMs,
-            batchSize = batchSize
-        )
-        readiness.markReady()
-        worker.runUntilStopped(running)
+                pollIntervalMs = pollIntervalMs,
+                batchSize = batchSize
+            )
+            readiness.markReady()
+            worker.runUntilStopped(running)
+        } finally {
+            tokenProvider.close()
+        }
     } finally {
         readiness.markNotReady()
         healthServer.stop(gracePeriodMillis = 1_000, timeoutMillis = 2_000)
@@ -82,12 +83,11 @@ fun main() = runBlocking {
     }
 }
 
-internal suspend fun fetchFreshopSessionWithRetry(
-    client: FreshopSessionClient,
-    config: FreshopSessionConfig,
+internal suspend fun initializeFreshopTokenWithRetry(
+    tokenProvider: ApiFreshopTokenProvider,
     maxAttempts: Int,
     retryDelayMs: Long
-): FreshopSessionResponse {
+): String {
     require(maxAttempts > 0) {
         "WORKER_INIT_MAX_ATTEMPTS must be greater than 0"
     }
@@ -99,9 +99,9 @@ internal suspend fun fetchFreshopSessionWithRetry(
     repeat(maxAttempts) { attemptIndex ->
         val attempt = attemptIndex + 1
         try {
-            val session = client.createSession(config)
-            println("event=worker_init_session_success attempt=$attempt storeId=${session.storeId}")
-            return session
+            val token = tokenProvider.initialize()
+            println("event=worker_init_session_success attempt=$attempt")
+            return token
         } catch (exception: Throwable) {
             lastFailure = exception
             System.err.println(

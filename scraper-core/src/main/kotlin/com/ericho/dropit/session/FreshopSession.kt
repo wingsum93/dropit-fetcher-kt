@@ -9,10 +9,14 @@ import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.plugins.defaultRequest
 import io.ktor.client.request.accept
-import io.ktor.client.request.forms.submitForm
+import io.ktor.client.request.forms.MultiPartFormDataContent
+import io.ktor.client.request.forms.formData
+import io.ktor.client.request.post
+import io.ktor.client.request.setBody
 import io.ktor.http.ContentType
-import io.ktor.http.parameters
 import io.ktor.serialization.kotlinx.json.json
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -61,6 +65,30 @@ class StaticFreshopTokenProvider(
     override suspend fun token(): String = token
 }
 
+class ApiFreshopTokenProvider(
+    private val client: FreshopSessionClient = FreshopSessionClient(),
+    private val config: FreshopSessionConfig = FreshopSessionConfig()
+) : FreshopTokenProvider, Closeable {
+    private val mutex = Mutex()
+
+    @Volatile
+    private var cachedToken: String? = null
+
+    suspend fun initialize(): String = token()
+
+    override suspend fun token(): String {
+        cachedToken?.let { return it }
+
+        return mutex.withLock {
+            cachedToken ?: client.createSession(config).token.also { cachedToken = it }
+        }
+    }
+
+    override fun close() {
+        client.close()
+    }
+}
+
 class FreshopSessionClient private constructor(
     private val httpClient: HttpClient,
     private val endpoint: String,
@@ -85,10 +113,14 @@ class FreshopSessionClient private constructor(
     )
 
     suspend fun createSession(config: FreshopSessionConfig): FreshopSessionResponse {
-        val response = httpClient.submitForm(
-            url = endpoint,
-            formParameters = createSessionFormParameters(config, clockMillis())
-        ).body<FreshopSessionResponse>()
+        val response = httpClient.post(endpoint) {
+            url {
+                parameters.append("referrer", config.referrer)
+                parameters.append("locale", config.locale)
+                parameters.append("app_key", config.appKey)
+            }
+            setBody(MultiPartFormDataContent(createSessionFormParameters(config)))
+        }.body<FreshopSessionResponse>()
 
         require(response.token.isNotBlank()) {
             "Freshop session token is blank"
@@ -103,11 +135,10 @@ class FreshopSessionClient private constructor(
     companion object {
         const val DEFAULT_ENDPOINT = "https://api.freshop.ncrcloud.com/2/sessions/create"
 
-        internal fun createSessionFormParameters(config: FreshopSessionConfig, utcMillis: Long) = parameters {
-            append("app_key", config.appKey)
+        internal fun createSessionFormParameters(config: FreshopSessionConfig) = formData {
+            append("app_keys", config.appKey)
             append("locale", config.locale)
             append("referrer", config.referrer)
-            append("utc", utcMillis.toString())
         }
 
         private fun defaultHttpClient(): HttpClient {
